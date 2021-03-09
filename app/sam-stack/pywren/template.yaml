@@ -1,0 +1,85 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  ...
+
+Parameters:
+  PyWrenFunctionName:
+    Type: String
+  PyWrenRoleName:
+    Type: String
+  PyWrenBucketName:
+    Type: String
+  PyWrenRuntimeBucketName:
+    Type: String
+    Default: "pywren-runtimes-public-us-west-2"
+
+Globals:
+  Function:
+    Timeout: 900
+    MemorySize: 3008
+
+Resources:
+  PyWrenFunction:
+    Type: "AWS::Serverless::Function"
+    Properties:
+      CodeUri: src/
+      Handler: wrenhandler.aws_lambda_handler
+      Runtime: python3.7
+      FunctionName: !Ref PyWrenFunctionName
+      Role: !GetAtt PyWrenRole.Arn
+
+  PyWrenRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      RoleName: !Ref PyWrenRoleName
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service: ["lambda.amazonaws.com"]
+            Action: "sts:AssumeRole"
+      Path: "/"
+      Policies:
+        - PolicyName: "PyWrenRole-policy0"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ""
+                Effect: Allow
+                Action:
+                  - s3:List*
+                  - s3:Put*
+                  - s3:Get*
+                  - s3:MultipartUpload*
+                Resource:
+                  - !Sub "arn:aws:s3:::${PyWrenBucketName}"
+                  - !Sub "arn:aws:s3:::${PyWrenBucketName}/*"
+        - PolicyName: "PyWrenRole-policy1"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ""
+                Effect: Allow
+                Action:
+                  - s3:List*
+                  - s3:Get*
+                  - s3:Head*
+                Resource:
+                  - !Sub "arn:aws:s3:::${PyWrenRuntimeBucketName}"
+                  - !Sub "arn:aws:s3:::${PyWrenRuntimeBucketName}/*"
+        - PolicyName: "PyWrenRole-policy2"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ""
+                Effect: Allow
+                Action:
+                  - logs:*
+                  - cloudwatch:*
+                Resource:
+                  - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*"

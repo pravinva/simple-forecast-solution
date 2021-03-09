@@ -1,0 +1,55 @@
+{
+  "DatasetGroup": {
+    "DatasetGroupName":"AuDemand",
+    "Domain": "RETAIL"
+  },
+  "Predictor": {
+    "PredictorName": "AuDemand",
+    "ForecastHorizon": 72,
+    "FeaturizationConfig":{
+      "ForecastFrequency":"D"
+    },
+    "PerformAutoML": false
+  },
+  "Forecast": {
+    "ForecastName": "AuDemand",
+    "ForecastTypes":[
+      "0.10",
+      "0.50",
+      "0.90"
+    ]
+  },
+  "TimestampFormat": "yyyy-MM-dd",
+  "Datasets": [
+    {
+      "DatasetName": "AuDemand",
+      "Domain": "RETAIL",
+      "DatasetType": "TARGET_TIME_SERIES",
+      "DataFrequency": "D",
+      "Schema": {
+        "Attributes": [
+	  {
+	    "AttributeName": "item_id",
+            "AttributeType": "string"
+	  }, {
+            "AttributeName": "timestamp",
+            "AttributeType": "timestamp"
+          }, {
+	    "AttributeName": "channel",
+            "AttributeType": "string" 
+	  }, {
+	    "AttributeName": "actual_box_barcode",
+            "AttributeType": "string"
+	  }, {
+	    "AttributeName": "family",
+            "AttributeType": "string"
+	  }, {
+              "AttributeName": "demand",
+              "AttributeType": "float"
+          }
+        ]
+      }
+    }
+  ],
+  "PerformDelete": false
+}

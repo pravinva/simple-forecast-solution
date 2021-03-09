@@ -1,0 +1,38 @@
+{
+    "paths": [
+        {
+            "name": "/forecast",
+            "lambdaFunction": "voyagerForecastLambda",
+            "privacy": {
+                "private": true,
+                "auth": [
+                    "/POST",
+                    "/GET"
+                ]
+            }
+        }
+    ],
+    "resourceName": "voyagerForecastApi",
+    "apiName": "voyagerForecastApi",
+    "functionArns": [
+        {
+            "lambdaFunction": "voyagerForecastLambda"
+        }
+    ],
+    "privacy": {
+        "auth": 1,
+        "unauth": 0,
+        "authRoleName": "amplify-voyagerfrontend-devbe-60929-authRole",
+        "unAuthRoleName": "amplify-voyagerfrontend-devbe-60929-unauthRole"
+    },
+    "dependsOn": [
+        {
+            "category": "function",
+            "resourceName": "voyagerForecastLambda",
+            "attributes": [
+                "Name",
+                "Arn"
+            ]
+        }
+    ]
+}

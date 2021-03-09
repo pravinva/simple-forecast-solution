@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "auth": {
+      "voyagerfrontend849169bf": [
+        "read"
+      ]
+    },
+    "storage": {
+      "voyagerFrontendAuth": [
+        "read"
+      ],
+      "voyagerDb": [
+        "read"
+      ]
+    }
+  },
+  "lambdaLayers": []
+}

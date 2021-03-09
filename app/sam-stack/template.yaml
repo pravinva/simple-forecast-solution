@@ -1,0 +1,71 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  ...
+
+Parameters:
+  AppId:
+    Type: String
+  DataBucketName:
+    Type: String
+  DeploymentBucketName:
+    Type: String
+  LayerZipKey:
+    Type: String
+    Default: "awswrangler-layer-2.0.0-py3.8.zip"
+  TopicName:
+    Type: String
+    Default: "SNS Topic"
+  SnsEmail:
+    Type: String
+    Default: youremail@yourprovider.com
+
+Resources:
+  #
+  # Auxilliary resources
+  #
+  ResampleFunction:
+    Type: "AWS::Serverless::Function"
+    Properties:
+      CodeUri: aux/
+      Handler: app.lambda_handler
+      Runtime: python3.8
+      FunctionName: !Sub "resample-amznfcast-${AppId}"
+      Timeout: 900
+      MemorySize: 3008
+      Layers:
+        - !Ref AwsDataWranglerLayer
+      Policies:
+        - Statement:
+          - Sid: "Policy0"
+            Effect: Allow
+            Action:
+              - s3:List*
+              - s3:Put*
+              - s3:Get*
+              - s3:MultipartUpload*
+            Resource:
+              - !Sub "arn:aws:s3:::${DataBucketName}"
+              - !Sub "arn:aws:s3:::${DataBucketName}/*"
+
+  ContactUsTopic:
+    Type: "AWS::SNS::Topic"
+    Properties:
+      DisplayName: !Ref TopicName
+      Subscription:
+        - Endpoint: !Ref SnsEmail
+          Protocol: email
+    DeletionPolicy: Delete
+
+  AwsDataWranglerLayer:
+    Type: "AWS::Lambda::LayerVersion"
+    Properties:
+      LayerName: !Sub "AwsDataWranglerLayer-${AppId}"
+      CompatibleRuntimes:
+        - python3.8
+      Content:
+        S3Bucket: !Ref DeploymentBucketName
+        S3Key: !Ref LayerZipKey

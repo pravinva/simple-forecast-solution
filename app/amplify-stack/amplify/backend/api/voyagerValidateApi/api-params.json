@@ -1,0 +1,41 @@
+{
+    "paths": [
+        {
+            "name": "/validate",
+            "lambdaFunction": "voyagerValidateLambda",
+            "privacy": {
+                "private": true,
+                "auth": [
+                    "/POST",
+                    "/GET",
+                    "/PUT",
+                    "/PATCH"
+                ]
+            }
+        }
+    ],
+    "resourceName": "voyagerValidateApi",
+    "apiName": "voyagerValidateApi",
+    "functionArns": [
+        {
+            "lambdaFunction": "voyagerValidateLambda"
+        }
+    ],
+    "privacy": {
+        "auth": 1,
+        "unauth": 0,
+        "authRoleName": "amplify-voyagerfrontend-devfe-15832-authRole",
+        "unAuthRoleName": "amplify-voyagerfrontend-devfe-15832-unauthRole"
+    },
+    "dependsOn": [
+        {
+            "category": "function",
+            "resourceName": "voyagerValidateLambda",
+            "attributes": [
+                "Name",
+                "Arn"
+            ]
+        }
+    ],
+    "uuid": "742724b8"
+}

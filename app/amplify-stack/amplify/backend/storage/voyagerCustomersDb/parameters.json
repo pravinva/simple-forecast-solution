@@ -1,0 +1,7 @@
+{
+    "tableName": "voyagerCustomers",
+    "partitionKeyName": "cognitoIdentityId",
+    "partitionKeyType": "S",
+    "sortKeyName": "userCreatedAt",
+    "sortKeyType": "S"
+}

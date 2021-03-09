@@ -1,0 +1,4 @@
+fsspec
+pandas
+s3fs
+boto3==1.16.21
