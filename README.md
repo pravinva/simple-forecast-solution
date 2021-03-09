@@ -1,4 +1,4 @@
-# README
+# Amazon Simple Forecast Solution
 
 ## Installation
 
