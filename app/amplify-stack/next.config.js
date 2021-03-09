@@ -14,7 +14,7 @@ module.exports = {
     USER_BRANCH: process.env.USER_BRANCH
   },
   webpack: (config) => {
-    config.optimization.minimize = false;
+    config.optimization.minimize = true;
       config.optimization.minimizer = [];
     return config
   },
