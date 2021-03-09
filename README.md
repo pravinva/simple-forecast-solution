@@ -2,6 +2,12 @@
 
 ## Installation
 
+### One-Click Deployment
+
+Region name | Region code | Launch
+--- | --- | ---
+Asia Pacific (Sydney) | ap-southeast-2 | [![Launch Stack](https://cdn.rawgit.com/buildkite/cloudformation-launch-stack-button-svg/master/launch-stack.svg)](https://ap-southeast-2.console.aws.amazon.com/cloudformation/home?region=ap-southeast-2#/stacks/quickcreate?templateUrl=https%3A%2F%2Fsimple-forecast-solution.s3-ap-southeast-2.amazonaws.com%2Ftemplate.yaml&stackName=sfs-installation-stack)
+
 ## Cleanup
 
 ## Amazon SFS Security FAQs
