@@ -376,7 +376,7 @@ class Engine:
 
         return
 
-    def forecast(self, ignore_naive=False):
+    def forecast(self, model_name=None, ignore_naive=False):
         """
         """
         items = []
@@ -465,7 +465,8 @@ class Engine:
             out = wren_rows
         else:
             def best_model_forecast_helper(cfg):
-                return best_model_forcast(cfg, ignore_naive=ignore_naive)
+                return best_model_forcast(cfg, model_name=model_name,
+                                          ignore_naive=ignore_naive)
 
             wrenexec = pywren.default_executor()
             check_expected_bucket_owner(self._s3_bucket)

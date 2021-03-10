@@ -21,6 +21,7 @@ def lambda_handler(event, context):
         frequency = remap_freq(event["queryStringParameters"]["frequency"])
         horizon = event["queryStringParameters"]["horizon"]
         debug = event["queryStringParameters"].get("debug", False)
+        model_name = event["queryStringParameters"].get("model_name", None)
         ignore_naive = event["queryStringParameters"].get("ignore_naive", False)
         voyager_class = Engine(bucket, file_name, frequency, int(horizon), debug=debug)
     except Exception as ex:
@@ -48,7 +49,8 @@ def lambda_handler(event, context):
             ),
         }
 
-    voyager_class.forecast(ignore_naive=ignore_naive)
+    voyager_class.forecast(model_name=model_name,
+                           ignore_naive=ignore_naive)
 
     return {
         "statusCode": 200,
