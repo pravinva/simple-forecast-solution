@@ -229,4 +229,12 @@ def test_get_experiments():
 
     assert(len(experiments) > 0)
 
+    # check ignore_naive=False
+    non_naive_experiments = get_experiments(ignore_naive=True)
+    naive_experiments = [e for e in experiments if "naive_" in e["model_name"]]
+
+    assert(len(non_naive_experiments) < len(experiments))
+    assert(len(naive_experiments) > 0)
+    assert(len([e for e in non_naive_experiments if "naive_" in e["model_name"]]) == 0)
+
     return

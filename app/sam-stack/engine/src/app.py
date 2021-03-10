@@ -21,7 +21,7 @@ def lambda_handler(event, context):
         frequency = remap_freq(event["queryStringParameters"]["frequency"])
         horizon = event["queryStringParameters"]["horizon"]
         debug = event["queryStringParameters"].get("debug", False)
-        include_naive = event["queryStringParameters"].get("include_naive", True)
+        ignore_naive = event["queryStringParameters"].get("ignore_naive", False)
         voyager_class = Engine(bucket, file_name, frequency, int(horizon), debug=debug)
     except Exception as ex:
         exc_type, exc_value, exc_tb = sys.exc_info()
@@ -48,7 +48,7 @@ def lambda_handler(event, context):
             ),
         }
 
-    voyager_class.forecast()
+    voyager_class.forecast(ignore_naive=ignore_naive)
 
     return {
         "statusCode": 200,
@@ -75,6 +75,7 @@ if __name__ == "__main__":
     event["queryStringParameters"]["file"] = args.key
     event["queryStringParameters"]["frequency"] = args.freq
     event["queryStringParameters"]["horizon"] = args.horizon
+    event["queryStringParameters"]["include_naive"] = False
     event["queryStringParameters"]["debug"] = True
 
     response = lambda_handler(event, None)

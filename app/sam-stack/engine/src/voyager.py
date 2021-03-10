@@ -233,9 +233,6 @@ class Engine:
         bucket = self._s3_bucket
         s3_key = s3_filename 
 
-        #
-        #
-        #
         if fn is None:
             df = read_csv_s3(bucket, s3_key, dtype=INPUT_DTYPE)
         else:
@@ -379,7 +376,7 @@ class Engine:
 
         return
 
-    def forecast(self):
+    def forecast(self, ignore_naive=False):
         """
         """
         items = []
@@ -457,7 +454,8 @@ class Engine:
         if self.debug:
             for experiment_list in list_of_experiments[:1]:
                 for e in experiment_list[:1]:
-                    wren_rows.append(best_model_forcast(e, debug=True))
+                    wren_rows.append(best_model_forcast(e,
+                        ignore_naive=ignore_naive, debug=True))
 
             wren_rows = jsonify_wren_rows(wren_rows)
 
@@ -466,10 +464,15 @@ class Engine:
 
             out = wren_rows
         else:
+            def best_model_forecast_helper(cfg):
+                return best_model_forcast(cfg, ignore_naive=ignore_naive)
+
             wrenexec = pywren.default_executor()
             check_expected_bucket_owner(self._s3_bucket)
             for experiment_list in list_of_experiments:
-                futures = wrenexec.map(best_model_forcast, experiment_list)
+                #futures = wrenexec.map(best_model_forcast, experiment_list)
+                futures = wrenexec.map(best_model_forecast_helper,
+                                       experiment_list)
                 wren_rows.extend(pywren.get_all_results(futures))
 
             wren_rows = jsonify_wren_rows(wren_rows)
