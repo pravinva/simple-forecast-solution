@@ -208,7 +208,7 @@ class Engine:
     """
 
     def __init__(self, s3_bucket=None, s3_filename=None, fc_freq=None,
-        horizon=None, fn=None, debug=False, verbose=False):
+        horizon=None, fn=None, include_naive=True, debug=False, verbose=False):
         """
 
         Parameters
@@ -227,6 +227,7 @@ class Engine:
         self.fc_freq = remap_freq(fc_freq)
         self.horizon_orig = horizon
         self.horizon = max(MIN_HORIZON, horizon)
+        self.include_naive = include_naive
         self.debug = debug
 
         bucket = self._s3_bucket
