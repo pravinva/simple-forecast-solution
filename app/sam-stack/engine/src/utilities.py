@@ -112,7 +112,7 @@ def view_as_windows(arr_in, window_shape, step=1):
     return arr_out
 
 
-def get_experiments(include_naive=True, debug=False):
+def get_experiments(ignore_naive=False, debug=False):
     """This is the list of experiments that serves as the grid search over
     different types of models that reside in arima_trend.py, es_trend.py and
     forecast_trend.py
@@ -890,13 +890,13 @@ def get_experiments(include_naive=True, debug=False):
     if debug:
         experiments = experiments[:1]
 
-    if not include_naive:
+    if ignore_naive:
         experiments = [c for c in experiments if ("naive" not in c["model_name"])]
 
     return experiments
 
 
-def best_model_forcast(config, use_all_backtests=True, include_naive=True, debug=False):
+def best_model_forcast(config, use_all_backtests=True, ignore_naive=False, debug=False):
     """
     This is the main function that is called from this module
 
@@ -911,8 +911,8 @@ def best_model_forcast(config, use_all_backtests=True, include_naive=True, debug
         Set to True to average the cost over all of the sliding window
         backtests; otherwise, set to False to use only the final backtest
         window.
-    include_naive : bool, optional
-        Include naive forecasting approaches.
+    ignore_naive : bool, optional
+        Ignore naive forecasting approaches.
 
     Notes
     -----
@@ -948,7 +948,7 @@ def best_model_forcast(config, use_all_backtests=True, include_naive=True, debug
     if np.count_nonzero(config["demand"]) < config["horizon"] * 2:
         config["local_model"] = True
 
-    experiments = get_experiments(include_naive=include_naive, debug=debug)
+    experiments = get_experiments(ignore_naive=ignore_naive, debug=debug)
 
     # generate the backtest "cost" for each "experiment", the final horizon
     # window is excluded from these experiments
