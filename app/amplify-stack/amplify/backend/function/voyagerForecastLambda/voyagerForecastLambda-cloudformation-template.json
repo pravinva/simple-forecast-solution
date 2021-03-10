@@ -33,6 +33,12 @@
     "storagevoyagerCustomersDbArn": {
       "Type": "String",
       "Default": "storagevoyagerCustomersDbArn"
+    },
+    "deploymentBucketName": {
+      "Type": "String"
+    },
+    "s3Key": {
+      "Type": "String"
     }
   },
   "Conditions": {
@@ -112,8 +118,12 @@
         "Timeout": "900",
         "MemorySize": 512,
         "Code": {
-          "S3Bucket": "amplify-sfs-alpha-230813-deployment",
-          "S3Key": "amplify-builds/voyagerForecastLambda-43367a55567771595750-build.zip"
+          "S3Bucket": {
+            "Ref": "deploymentBucketName"
+          },
+          "S3Key": {
+            "Ref": "s3Key"
+          }
         }
       }
     },

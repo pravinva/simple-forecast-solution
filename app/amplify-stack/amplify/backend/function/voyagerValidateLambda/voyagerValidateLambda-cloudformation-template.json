@@ -13,6 +13,12 @@
     "storagevoyagerFrontendAuthBucketName": {
       "Type": "String",
       "Default": "storagevoyagerFrontendAuthBucketName"
+    },
+    "deploymentBucketName": {
+      "Type": "String"
+    },
+    "s3Key": {
+      "Type": "String"
     }
   },
   "Conditions": {
@@ -75,8 +81,12 @@
         "Timeout": "25",
         "MemorySize": "2048",
         "Code": {
-          "S3Bucket": "amplify-sfs-alpha-230813-deployment",
-          "S3Key": "amplify-builds/voyagerValidateLambda-6a412f664c746e495849-build.zip"
+          "S3Bucket": {
+            "Ref": "deploymentBucketName"
+          },
+          "S3Key": {
+            "Ref": "s3Key"
+          }
         }
       }
     },
