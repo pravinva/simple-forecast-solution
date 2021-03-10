@@ -112,7 +112,7 @@ def view_as_windows(arr_in, window_shape, step=1):
     return arr_out
 
 
-def get_experiments(ignore_naive=False, debug=False):
+def get_experiments(debug=False):
     """This is the list of experiments that serves as the grid search over
     different types of models that reside in arima_trend.py, es_trend.py and
     forecast_trend.py
@@ -890,13 +890,11 @@ def get_experiments(ignore_naive=False, debug=False):
     if debug:
         experiments = experiments[:1]
 
-    if ignore_naive:
-        experiments = [c for c in experiments if ("naive" not in c["model_name"])]
-
     return experiments
 
 
-def best_model_forcast(config, use_all_backtests=True, ignore_naive=False, debug=False):
+def best_model_forcast(config, use_all_backtests=True, model_name=None,
+    ignore_naive=False, debug=False):
     """
     This is the main function that is called from this module
 
@@ -911,6 +909,7 @@ def best_model_forcast(config, use_all_backtests=True, ignore_naive=False, debug
         Set to True to average the cost over all of the sliding window
         backtests; otherwise, set to False to use only the final backtest
         window.
+    model_name : str, optional
     ignore_naive : bool, optional
         Ignore naive forecasting approaches.
 
@@ -948,11 +947,20 @@ def best_model_forcast(config, use_all_backtests=True, ignore_naive=False, debug
     if np.count_nonzero(config["demand"]) < config["horizon"] * 2:
         config["local_model"] = True
 
-    experiments = get_experiments(ignore_naive=ignore_naive, debug=debug)
+    experiments = get_experiments(debug=debug)
+
+    # Restrict the possible models to explore.
+    if ignore_naive:
+        experiments = \
+            [c for c in experiments if ("naive" not in c["model_name"])]
+
+    if model_name is not None:
+        experiments = [e for e in experiments if model_name in e["model_name"]]
 
     # generate the backtest "cost" for each "experiment", the final horizon
     # window is excluded from these experiments
     results = []
+
     for i, exp in enumerate(experiments, start=1):
         ys, yp = backtest_slice_forecast(config, exp)
         cost = calc_cost(ys, yp)
