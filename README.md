@@ -1,5 +1,7 @@
 # Amazon Simple Forecast Solution
 
+![](https://img.shields.io/badge/license-MIT--0-green)
+
 ## Installation
 
 ### One-Click Deployment
