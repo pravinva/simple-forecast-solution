@@ -133,7 +133,7 @@ function install_prereqs() {
     export N_PREFIX=$HOME/.n ; export PATH=$N_PREFIX/bin:$PATH ; \
     curl -L https://raw.githubusercontent.com/tj/n/master/bin/n -o n ; \
     bash n lts ; \
-    npm install -g @aws-amplify/cli@4.40.1
+    npm install -g @aws-amplify/cli@4.45.0
 
     set +x
 }
@@ -278,7 +278,7 @@ function patch_pywren() {
 function deploy_engine_stack() {
     cat > >(cut -c 5-) <<-EOF
     --------------------------
-    DEPLOYING THE ENGINE STACK
+    DEPLOYING SFS ENGINE STACK
     --------------------------
 	EOF
 
@@ -506,13 +506,13 @@ function deploy_aux_stack() {
         --output text
     )
 
-    mkfifo /tmp/tmp_json
+    rm -rf /tmp/tmp_json
 
     aws lambda update-function-configuration \
       --function-name $FCAST_LAMBDA \
         | jq '(.Environment.Variables
                 | .VOYAGER_LAMBDA_FUNCTION_NAME) |= "'$ENGINE_LAMBDA'"' \
-        | cat > /tmp/tmp_json &
+        | cat > /tmp/tmp_json
 
     aws lambda update-function-configuration \
       --function-name $FCAST_LAMBDA \
@@ -622,6 +622,12 @@ function deploy_aux_stack() {
 
 
 function update_s3_sse() {
+    cat > >(cut -c 5-) <<-EOF
+    ----------------------------------
+    APPLYING S3 SERVER-SIDE ENCRYPTION
+    ----------------------------------
+	EOF
+
     # Add S3 SSE to the amplify data bucket
     aws s3api put-bucket-encryption \
         --bucket $(get_amplify_data_bucket) \
