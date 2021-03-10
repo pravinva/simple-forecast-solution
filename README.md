@@ -1,7 +1,7 @@
 # Amazon Simple Forecast Solution
 
 ![](https://img.shields.io/badge/license-MIT--0-green)
-[![pytest](https://github.com/aws-samples/simple-forecast-solution/actions/workflows/run-pytest.yml/badge.svg?branch=main)](https://github.com/aws-samples/simple-forecast-solution/actions/workflows/run-pytest.yml)
+![](https://img.shields.io/github/workflow/status/aws-samples/simple-forecast-solution/pytest/main)
 
 ## Installation
 
