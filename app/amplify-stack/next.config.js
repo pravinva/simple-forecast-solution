@@ -12,10 +12,5 @@ module.exports = {
   },
   env: {
     USER_BRANCH: process.env.USER_BRANCH
-  },
-  webpack: (config) => {
-    config.optimization.minimize = true;
-      config.optimization.minimizer = [];
-    return config
-  },
+  }
 };
