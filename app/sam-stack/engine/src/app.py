@@ -16,12 +16,12 @@ def lambda_handler(event, context):
     """
 
     try:
-
         bucket = event["queryStringParameters"]["bucket"]
         file_name = event["queryStringParameters"]["file"]
         frequency = remap_freq(event["queryStringParameters"]["frequency"])
         horizon = event["queryStringParameters"]["horizon"]
         debug = event["queryStringParameters"].get("debug", False)
+        include_naive = event["queryStringParameters"].get("include_naive", True)
         voyager_class = Engine(bucket, file_name, frequency, int(horizon), debug=debug)
     except Exception as ex:
         exc_type, exc_value, exc_tb = sys.exc_info()

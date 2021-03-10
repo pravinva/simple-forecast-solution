@@ -13,7 +13,7 @@ import voyager as vr
 
 from forecast_trend import forecast_naive
 from voyager import Engine, grouper
-from utilities import INPUT_DTYPE
+from utilities import INPUT_DTYPE, get_experiments
 
 DATA_DIR = os.path.join(PWD, "data")
 
@@ -217,5 +217,16 @@ def test_engine():
 
     engine = Engine(fn=fn, fc_freq=fc_freq, horizon=horizon, debug=True)
     engine.forecast()
+
+    return
+
+
+def test_get_experiments():
+    """
+    """
+
+    experiments = get_experiments()
+
+    assert(len(experiments) > 0)
 
     return
