@@ -23,6 +23,8 @@ def lambda_handler(event, context):
         debug = event["queryStringParameters"].get("debug", False)
         model_name = event["queryStringParameters"].get("model_name", None)
         ignore_naive = event["queryStringParameters"].get("ignore_naive", False)
+        min_len = event["queryStringParameters"].get("min_len", None)
+        quantile = event["queryStringParameters"].get("quantile", None)
         voyager_class = Engine(bucket, file_name, frequency, int(horizon), debug=debug)
     except Exception as ex:
         exc_type, exc_value, exc_tb = sys.exc_info()
@@ -49,8 +51,13 @@ def lambda_handler(event, context):
             ),
         }
 
+    if min_len is not None:
+        min_len = int(min_len)
+
     voyager_class.forecast(model_name=model_name,
-                           ignore_naive=ignore_naive)
+                           ignore_naive=ignore_naive,
+                           min_len=min_len,
+                           quantile=quantile)
 
     return {
         "statusCode": 200,
