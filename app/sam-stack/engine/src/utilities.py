@@ -894,7 +894,7 @@ def get_experiments(debug=False):
 
 
 def best_model_forcast(config, use_all_backtests=True, model_name=None,
-    ignore_naive=False, debug=False):
+    quantile=None, ignore_naive=False, debug=False):
     """
     This is the main function that is called from this module
 
@@ -963,7 +963,7 @@ def best_model_forcast(config, use_all_backtests=True, model_name=None,
 
     for i, exp in enumerate(experiments, start=1):
         ys, yp = backtest_slice_forecast(config, exp)
-        cost = calc_cost(ys, yp)
+        cost = calc_cost(ys, yp, quantile=quantile)
         results.append(cost)
 
     # find the best model according to the multiple backtesting results
@@ -1436,7 +1436,7 @@ def calc_mape(ys, yp):
     return np.nanmean(calc_ape(ys, yp))
 
 
-def calc_cost(ys, yp):
+def calc_cost(ys, yp, quantile=None):
     """"""
 
     historic_demand, results = ys, yp
@@ -1451,7 +1451,8 @@ def calc_cost(ys, yp):
     except IndexError:
         pass
 
-    quantile = 0.6
+    if quantile is None:
+        quantile = 0.6
 
     return np.mean(
         np.maximum(quantile * residual.ravel(), (quantile - 1) * residual.ravel())

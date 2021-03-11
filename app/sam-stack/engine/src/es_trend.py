@@ -1,5 +1,6 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: MIT-0
+import traceback
 import numpy as np
 
 
@@ -78,6 +79,7 @@ def forecast_holt(tst, config):
             horizon = config["horizon"]
 
             try:
+                ts = tst.copy()
                 extra_periods=horizon-1
                 
                 alpha = config["alpha"]
@@ -141,4 +143,5 @@ def forecast_holt(tst, config):
                     #
                     return np.round(f[-horizon:],0)
             except:
+                traceback.print_exc()
                 return np.zeros(horizon)

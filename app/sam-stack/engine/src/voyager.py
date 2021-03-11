@@ -376,7 +376,8 @@ class Engine:
 
         return
 
-    def forecast(self, model_name=None, ignore_naive=False):
+    def forecast(self, model_name=None, ignore_naive=False, quantile=None,
+        min_len=None):
         """
         """
         items = []
@@ -409,8 +410,13 @@ class Engine:
                 item_dict["horizon"]=self.horizon
                 item_dict["forecast_frequency"]=self.fc_freq
 
-                required_min_length = 8+self.horizon+20
-                #required_min_length = 8+3*self.horizon
+                if min_len is None:
+                    required_min_length = 8+self.horizon+20
+                    #required_min_length = 8+3*self.horizon
+                    #required_min_length = 8 * self.horizon
+                else:
+                    required_min_length = min_len
+
                 if item_dict["demand"].shape[0] <= required_min_length:
 
                     padding = np.ones(required_min_length)*0.1
@@ -465,7 +471,9 @@ class Engine:
             out = wren_rows
         else:
             def best_model_forecast_helper(cfg):
-                return best_model_forcast(cfg, model_name=model_name,
+                return best_model_forcast(cfg,
+                                          model_name=model_name,
+                                          quantile=quantile,
                                           ignore_naive=ignore_naive)
 
             wrenexec = pywren.default_executor()
