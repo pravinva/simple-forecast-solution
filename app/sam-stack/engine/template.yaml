@@ -1,6 +1,5 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: MIT-0
-
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 Description: >
@@ -9,20 +8,6 @@ Description: >
 Parameters:
   DataBucketName:
     Type: String
-# PyWrenFunctionName:
-#   Type: String
-#   Default: PyWrenFunction
-# PyWrenRoleName:
-#   Type: String
-#   Default: PyWrenRole
-  PyWrenBucketName:
-    Type: String
-  PyWrenRuntimeBucketName:
-    Type: String
-    Default: "pywren-runtimes-public-us-west-2"
-# AmznFcastPipelineBucketName:
-#   Type: String
-#   Default: amznfcast-pipeline
 
 Globals:
   Function:
@@ -33,9 +18,9 @@ Resources:
   EngineForecastFunction:
     Type: AWS::Serverless::Function
     Properties:
-      CodeUri: src/
+      CodeUri: container/stack/src/
       Handler: app.lambda_handler
-      Runtime: python3.7
+      Runtime: python3.8
       Role: !GetAtt EngineForecastRole.Arn
 
   EngineForecastRole:
@@ -75,21 +60,7 @@ Resources:
                 Resource:
                   - !Sub "arn:aws:s3:::${DataBucketName}"
                   - !Sub "arn:aws:s3:::${DataBucketName}/*"
-                  - !Sub "arn:aws:s3:::${PyWrenBucketName}"
-                  - !Sub "arn:aws:s3:::${PyWrenBucketName}/*"
-        - PolicyName: "EngineForecastRole-S3policy1"
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Sid: ""
-                Effect: Allow
-                Action:
-                  - s3:List*
-                  - s3:Get*
-                Resource:
-                  - !Sub "arn:aws:s3:::${PyWrenRuntimeBucketName}"
-                  - !Sub "arn:aws:s3:::${PyWrenRuntimeBucketName}/*"
-        - PolicyName: "EngineForecastRole-LogsPolicy1"
+        - PolicyName: "EngineForecastRole-LogsPolicy0"
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
@@ -99,20 +70,3 @@ Resources:
                   - logs:*
                 Resource:
                   - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*"
-
-# PyWrenFunction:
-#   Type: AWS::Serverless::Application
-#   Properties:
-#     Location: ../voyager-pywren/template.yaml
-#     Parameters:
-#       PyWrenFunctionName: !Ref PyWrenFunctionName
-#       PyWrenBucketName: !Ref PyWrenBucketName
-#       PyWrenRuntimeBucketName: !Ref PyWrenRuntimeBucketName
-#       PyWrenRoleName: !Ref PyWrenRoleName
-
-# AmznFcastPipeline:
-#   Type: AWS::Serverless::Application
-#   Properties:
-#     Location: ./amznfcast/template.yaml
-#     Parameters:
-#       AmznFcastPipelineBucketName: !Ref AmznFcastPipelineBucketName
