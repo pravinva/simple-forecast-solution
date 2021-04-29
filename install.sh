@@ -120,7 +120,18 @@ function install_prereqs() {
 
     pyenv global $PY38_VERSION
     pip install pipenv==2020.11.15
-    pip install aws-sam-cli==1.13.2
+    pip install --force-reinstall \
+        aws-sam-cli==1.13.2 \
+        aws-cdk.core==1.100.0 \
+        aws-cdk.aws_lambda==1.100.0 \
+        aws-cdk.aws_ecr==1.100.0 \
+        aws-cdk.aws-iam==1.100.0 \
+        aws-cdk.aws-glue==1.100.0 \
+        aws-cdk.aws-s3==1.100.0 \
+        aws-cdk.aws-s3-assets==1.100.0 \
+        aws-cdk.aws-s3-deployment==1.100.0 \
+        aws-cdk.aws-stepfunctions==1.100.0 \
+        aws-cdk.aws-stepfunctions-tasks==1.100.0
 
     mkdir -p ~/.aws/
     REGION=$(curl -s http://169.254.169.254/latest/meta-data/placement/availability-zone | sed 's/[a-z]$//')
@@ -134,6 +145,7 @@ function install_prereqs() {
     curl -L https://raw.githubusercontent.com/tj/n/master/bin/n -o n ; \
     bash n lts ; \
     npm install -g @aws-amplify/cli@4.45.0
+    npm install -g aws-cdk
 
     set +x
 }
@@ -394,6 +406,22 @@ function deploy_engine_stack() {
 }
 
 
+function deploy_engine_stack2() {
+    cat > >(cut -c 5-) <<-EOF
+    --------------------------
+    DEPLOYING SFS ENGINE STACK
+    --------------------------
+	EOF
+
+    source ~/.bashrc
+    cd $SAM_DIR/engine/container
+
+    pyenv global $PY38_VERSION
+
+    cdk deploy -O /tmp/engine-stack-outputs.json
+}
+
+
 function deploy_amznfcast_stack() {
     cat > >(cut -c 5-) <<-EOF
     -----------------------------------
@@ -500,11 +528,12 @@ function deploy_aux_stack() {
 
     FCAST_LAMBDA=voyagerForecastLambda-${AMPLIFY_APP_ENV}
     ENGINE_STACK=sam-engine-$(get_amplify_app_id)
-    ENGINE_LAMBDA=$(aws cloudformation list-stack-resources \
-        --stack-name $ENGINE_STACK \
-        --query "StackResourceSummaries[?LogicalResourceId=='EngineForecastFunction'].PhysicalResourceId" \
-        --output text
-    )
+#   ENGINE_LAMBDA=$(aws cloudformation list-stack-resources \
+#       --stack-name $ENGINE_STACK \
+#       --query "StackResourceSummaries[?LogicalResourceId=='EngineForecastFunction'].PhysicalResourceId" \
+#       --output text
+#   )
+    ENGINE_LAMBDA=$( cat /tmp/engine-stack-outputs.json | jq -r '.SfnStack.SfsStateMachineARN' )
 
     rm -rf /tmp/tmp_json
 
@@ -770,7 +799,7 @@ function deploy_all() {
 
     [[ $ENABLE_FRONTEND == 1 ]] && deploy_amplify_frontend
 
-    deploy_engine_stack
+    deploy_engine_stack2
     deploy_amznfcast_stack
     deploy_aux_stack
 

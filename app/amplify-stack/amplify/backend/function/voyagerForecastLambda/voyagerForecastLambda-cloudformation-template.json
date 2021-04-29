@@ -313,6 +313,30 @@
             {
               "Effect": "Allow",
               "Action": [
+                "states:*"
+              ],
+              "Resource": [
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "arn:aws:states:",
+                      {
+                        "Ref": "AWS::Region"
+                      },
+                      ":",
+                      {
+                        "Ref": "AWS::AccountId"
+                      },
+                      ":stateMachine:*"
+                    ]
+                  ]
+                }
+              ]
+            },
+            {
+              "Effect": "Allow",
+              "Action": [
                 "s3:Get*",
                 "s3:Put*",
                 "s3:List*"

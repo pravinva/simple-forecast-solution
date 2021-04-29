@@ -18,7 +18,7 @@ Resources:
   EngineForecastFunction:
     Type: AWS::Serverless::Function
     Properties:
-      CodeUri: container/stack/src/
+      CodeUri: container/sfn_stack/engine_lambda/src/
       Handler: app.lambda_handler
       Runtime: python3.8
       Role: !GetAtt EngineForecastRole.Arn

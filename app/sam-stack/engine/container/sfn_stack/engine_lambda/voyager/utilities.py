@@ -1083,26 +1083,39 @@ def best_model_forecast(config, use_all_backtests=True, model_name=None,
     best_model["Voyager_Error"] = engine_mape
     best_model["Voyager_Error_MAPE"] = engine_mape
 
-    best_model["forecast_horizon_backtest"] = yp_engine_backtest.round(0)
-    best_model["forecast"] = yp_engine_fcast.round(0)
+    best_model["forecast_horizon_backtest"] = yp_engine_backtest.round(0).tolist()
+    best_model["forecast"] = yp_engine_fcast.round(0).tolist()
 
     best_model["forecast_p90"] = np.clip(
         generate_forecast_p90(config, best_model),
         0,
         2 * config["demand"][-config["horizon"] :].max(),
-    )
+    ).tolist()
+
     best_model["forecast_p10"] = np.clip(
         generate_forecast_p10(config, best_model),
         0,
         2 * config["demand"][-config["horizon"] :].max(),
-    )
+    ).tolist()
 
     best_model.pop("model", None)
+
+    # convert payload to JSON serializable content
 
     dict_results = {**config, **best_model}
     dict_results.pop("category_sum", None)
 
-    return forecast_df(dict_results)
+    dict_results["demand"] = list(dict_results["demand"])
+    dict_results["demand_p10"] = list(dict_results["demand_p10"])
+    dict_results["demand_p90"] = list(dict_results["demand_p90"])
+
+    dict_results["first_date"] = dict_results["first_date"].strftime("%Y-%m-%d")
+    dict_results["last_date"] = dict_results["last_date"].strftime("%Y-%m-%d")
+    dict_results["backtest_date"] = dict_results["backtest_date"].strftime("%Y-%m-%d")
+
+    # ~~~
+
+    return dict_results
 
 
 def generate_forecast(config, best_model):

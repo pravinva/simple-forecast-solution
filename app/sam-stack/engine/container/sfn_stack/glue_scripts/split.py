@@ -75,7 +75,7 @@ for grp in grp_vals:
                           .to_parquet(s3_output_path, index=False)
     output_paths.append(s3_output_path)
 
-pd.DataFrame({"s3_output_path": output_paths}) \
+pd.DataFrame({"s3_parquet_path": output_paths}) \
   .to_csv(f"{s3_input_path}.paths.csv", index=False)
 
 job.commit()

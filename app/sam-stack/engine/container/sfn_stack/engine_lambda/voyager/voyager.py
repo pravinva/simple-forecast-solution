@@ -766,6 +766,62 @@ def preprocess(df, freq, horiz=None, batch_size=1000):
     return df2
 
 
+from scipy import signal
+from scipy import stats
+from scipy.special import boxcox, inv_boxcox
+
+
+def calc_series_metrics(df):
+    """
+    """
+
+    d = {}
+    d['family'] = str(df.category.iloc[0])
+    d['series_length'] = df.demand.values.size
+    d['product_life_periods'] = np.trim_zeros(df.demand.values).size
+    d['median_demand'] = np.nanmedian(np.trim_zeros(df.demand.values))
+    d['tail_demand'] = df.demand.tail(8).mean()
+
+    if d['tail_demand'] < 1:
+        d["retired"] = True
+    else:
+        d["retired"] = False
+
+    if d["retired"] and d['product_life_periods'] < d['series_length']/4:
+            d['category'] = "Short"
+    elif d["retired"] and d['product_life_periods'] > d['series_length']/4:
+            d['category'] = "Medium"
+    else:
+        d['category'] = "Continuous"
+
+    d["spectralEntropy"] = spectralEntropy(df.demand)
+
+    if d['spectralEntropy'] >5:
+        d["intermittent"] = True
+    else:
+        d["intermittent"] = False
+
+    try:
+        d["lamb"] = lambdaBoxCox(df.demand)
+
+    except:
+        d["lamb"] = np.nan
+
+    return pd.Series(d)
+
+
+def make_report(df):
+    """
+    """
+
+    df_report = \
+        df.groupby(["item_id", "channel"]) \
+          .apply(calc_series_metrics) \
+          .reset_index()
+
+    return df_report
+
+
 def make_cfgs(df, freq, horiz):
     """
     """
@@ -785,7 +841,7 @@ def make_cfgs(df, freq, horiz):
     print("Number of channels", df.channel.nunique())
     print("Number of category", df.category.nunique())
 
-    for (channel, category, item_id), dd in groups:
+    for (channel, category, item_id), dd in tqdm(groups):
         demand = dd.demand
         item_name = dd.item_id.iloc[0]
         channel = dd.channel.iloc[0]
@@ -852,7 +908,8 @@ def make_cfgs(df, freq, horiz):
     return cfgs
 
 
-def make_forecast(df, freq, horiz, batch_size=1000):
+def make_forecast(df, freq, horiz, lambda_arn, batch_size=1000,
+        max_workers=1000, dev_mode=False):
     """
     """
 
@@ -866,8 +923,8 @@ def make_forecast(df, freq, horiz, batch_size=1000):
     n_batches = int(np.ceil(n_series / batch_size))
 
     executor = LambdaExecutor(
-        max_workers=1000, # max. no. of concurrent lambdas
-        lambda_arn="EngineMapStack-EngineMapFunction")
+        max_workers=max_workers, # max. no. of concurrent lambdas
+        lambda_arn=lambda_arn)
 
     # generate payload(s)
     payloads_iter = ({"args": tuple(), "kwargs": {"config": c}}
@@ -877,7 +934,7 @@ def make_forecast(df, freq, horiz, batch_size=1000):
     pred_list = []
 
     # partition payloads into chunks of 1000 
-    for batch in tqdm(partition_all(batch_size, payloads_iter), total=n_batches)
+    for batch in tqdm(partition_all(batch_size, payloads_iter), total=n_batches):
         batch_results = executor.map(best_model_forecast, batch)
         pred_list.extend(batch_results)
 

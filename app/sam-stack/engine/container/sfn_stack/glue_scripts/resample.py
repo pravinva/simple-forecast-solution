@@ -4,8 +4,8 @@ import warnings
 import numpy as np
 import pandas as pd
 
-from pyspark.sql import functions as F
 from pyspark.sql import SparkSession
+from pyspark.sql import functions as F
 
 from pyspark.sql.types import \
     StructType, FloatType, TimestampType, IntegerType, StringType, StructField
@@ -23,7 +23,6 @@ sc = SparkContext()
 glueContext = GlueContext(sc)
 spark = glueContext.spark_session
 
-#spark.conf.set("spark.sql.execution.arrow.pyspark.enabled", "true")
 spark.conf.set("spark.executorEnv.ARROW_PRE_0_15_IPC_FORMAT", "1")
 spark.conf.set("spark.yarn.appMasterEnv.ARROW_PRE_0_15_IPC_FORMAT", "1")
 
@@ -167,18 +166,8 @@ sdf = spark.read.parquet(s3_input_path.replace('s3:', 's3a:')) \
                    F.col("item_id").cast("string"),
                    F.col("demand").cast("float"))
 
-#sdf = spark.createDataFrame(pd.read_parquet(s3_input_path))
-sdf.printSchema()
-
 sdf2 = sdf.groupBy(["channel", "family", "item_id"]) \
           .apply(udf_preprocess)
-
-sdf2.printSchema()
-
-#df2 = sdf2.toPandas()
-#df2.info()
-
-#df2.to_parquet(f"{s3_input_path}.resample", index=False)
 
 sdf2.write \
     .mode("overwrite") \

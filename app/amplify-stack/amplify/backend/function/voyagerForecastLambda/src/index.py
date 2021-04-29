@@ -201,20 +201,18 @@ def handler(event, context):
             make_af_input(event, src_bucket, fileS3Key)
             http_code = 200
         else:
-            client = boto3.client("lambda")
-            response = client.invoke(
-                FunctionName=os.environ["VOYAGER_LAMBDA_FUNCTION_NAME"],
-                InvocationType="Event",
-                Payload=json.dumps({
-                    "queryStringParameters": {
-                        "bucket": src_bucket, 
-                        "file": os.path.join("private", cognitoIdentityId,
-                                             os.path.basename(fileS3Key)),
-                        "frequency": horizonUnit,
-                        "horizon": horizonAmount
-                    }
+            s3_input_path = f"s3://{src_bucket}/{fileS3Key}",
+            print(s3_input_path, s3_input_path)
+            sfn = boto3.client("stepfunctions")
+            response = sfn.start_execution(
+                stateMachineArn=os.environ["VOYAGER_LAMBDA_FUNCTION_NAME"],
+                input=json.dumps({
+                    "s3_input_path": f"s3://{src_bucket}/{fileS3Key}",
+                    "freq": horizonUnit,
+                    "horiz": horizonAmount
                 })
             )
+            response["StatusCode"] = 202
             http_code = int(response["StatusCode"])
     except Exception as e:
         traceback.print_exc()
@@ -227,7 +225,7 @@ def handler(event, context):
     if http_code == 200:
         msg = "The forecast was successfully generated"
     elif http_code == 202:
-        msg = "The forecast is being generated in the background and will complete in the next 10 minutes"
+        msg = "The forecast is being generated in the background and will require 5-45 minutes, depending on the input dataset size"
     else:
         msg = "Internal server error"
         report_s3_key = None
