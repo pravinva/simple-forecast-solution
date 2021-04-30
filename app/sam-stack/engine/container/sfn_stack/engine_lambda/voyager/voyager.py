@@ -776,6 +776,8 @@ def calc_series_metrics(df):
     """
 
     d = {}
+    d["item_id"] = str(df.item_id.iloc[0])
+    d["channel"] = str(df.channel.iloc[0])
     d['family'] = str(df.category.iloc[0])
     d['series_length'] = df.demand.values.size
     d['product_life_periods'] = np.trim_zeros(df.demand.values).size
@@ -815,7 +817,7 @@ def make_report(df):
     """
 
     df_report = \
-        df.groupby(["item_id", "channel"]) \
+        df.groupby(["item_id", "channel"], as_index=False) \
           .apply(calc_series_metrics) \
           .reset_index()
 

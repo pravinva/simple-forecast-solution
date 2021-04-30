@@ -418,7 +418,7 @@ function deploy_engine_stack2() {
 
     pyenv global $PY38_VERSION
 
-    cdk deploy -O /tmp/engine-stack-outputs.json
+    cdk deploy --require-approval never -O /tmp/engine-stack-outputs.json
 }
 
 
