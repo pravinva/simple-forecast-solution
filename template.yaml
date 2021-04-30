@@ -222,6 +222,7 @@ Resources:
         Fn::Base64: !Sub |
           #!/bin/bash -x
           git clone https://github.com/aws-samples/simple-forecast-solution.git
+          git checkout develop
           cd simple-forecast-solution/
            
           docker build -t sfs-deploy .
