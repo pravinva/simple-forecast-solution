@@ -11,6 +11,10 @@ RUN yum update -y \
         bzip2-devel libffi-devel \
     && yum clean all
 
+# Install docker
+# docker run -v /var/run/docker.sock:/var/run/docker.sock
+RUN amazon-linux-extras install docker -y
+
 # Create a non-root user
 RUN groupadd -g 1000 $username \
     && useradd -d /home/$username -u 1000 -g 1000 -m -s /bin/bash $username
@@ -18,6 +22,8 @@ RUN groupadd -g 1000 $username \
 # Make the non-root user a sudoer
 RUN echo "$username ALL=(root) NOPASSWD:ALL" > /etc/sudoers.d/$username && \
     chmod 0440 /etc/sudoers.d/$username
+
+RUN usermod -aG docker $username
 
 # Switch to the non-root user
 USER $username

@@ -224,9 +224,11 @@ Resources:
           git clone https://github.com/aws-samples/simple-forecast-solution.git
           cd simple-forecast-solution/
           git checkout develop
+
+          ( source ./install.sh ; make deploy_all )
            
-          docker build -t sfs-deploy .
-          docker run sfs-deploy:latest make deploy_all
+          #docker build -t sfs-deploy .
+          #docker run -v /var/run/docker.sock:/var/run/docker.sock sfs-deploy:latest make deploy_all
 
           # Shutdown the deployment instance
           poweroff

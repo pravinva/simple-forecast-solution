@@ -27,6 +27,13 @@ ENABLE_MFA=${2:-1}
 ENABLE_SSE=${3:-1}
 ENABLE_FRONTEND=${4:-1}
 
+#export AWS_IAM_ROLE=`curl -sL http://169.254.169.254/latest/meta-data/iam/security-credentials/`
+#export AWS_ACCESS_KEY_ID=`curl -sL http://169.254.169.254/latest/meta-data/iam/security-credentials/$AWS_IAM_ROLE/ | jq -r '.AccessKeyId'`
+#export AWS_SECRET_ACCESS_KEY=`curl -sL http://169.254.169.254/latest/meta-data/iam/security-credentials/$AWS_IAM_ROLE/ | jq -r '.SecretAccessKey'`
+#export AWS_TOKEN=`curl -sL http://169.254.169.254/latest/meta-data/iam/security-credentials/$AWS_IAM_ROLE/ | jq -r '.Token'`
+#export AWS_AZ=`curl -s http://169.254.169.254/latest/meta-data/placement/availability-zone`
+#export AWS_DEFAULT_REGION="`echo \"$AWS_AZ\" | sed -e 's:\([0-9][0-9]*\)[a-z]*\$:\\1:'`"
+
 
 function get_aws_region() {
     EC2_AVAIL_ZONE=`curl -s http://169.254.169.254/latest/meta-data/placement/availability-zone`
@@ -418,6 +425,7 @@ function deploy_engine_stack2() {
 
     pyenv global $PY38_VERSION
 
+    cdk bootstrap
     cdk deploy --require-approval never -O /tmp/engine-stack-outputs.json
 }
 
