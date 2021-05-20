@@ -153,7 +153,7 @@ function install_prereqs() {
     echo 'export PATH=$N_PREFIX/bin:$PATH' >> ~/.bashrc ; \
     export N_PREFIX=$HOME/.n ; export PATH=$N_PREFIX/bin:$PATH ; \
     curl -L https://raw.githubusercontent.com/tj/n/master/bin/n -o n ; \
-    bash n lts ; \
+    bash n 15.5.0 ; \
     npm install -g @aws-amplify/cli@4.45.0
     npm install -g aws-cdk
 
@@ -248,7 +248,8 @@ function deploy_amplify_frontend() {
         write_custom_http_yaml
 
         npm install
-        INLINE_RUNTIME_CHUNK=false npm run build
+        #INLINE_RUNTIME_CHUNK=false
+        npm run build
 
         rm --force $FRONTEND_ZIP
 

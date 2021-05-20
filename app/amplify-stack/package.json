@@ -11,14 +11,15 @@
     "@aws-amplify/auth": "^3.4.26",
     "@aws-amplify/cli": "^4.45.0",
     "@aws-amplify/core": "^3.8.18",
+    "@aws-amplify/interactions": "^3.3.25",
     "@aws-amplify/storage": "^3.3.26",
     "@aws-amplify/ui-react": "^1.0.4",
-    "@aws-amplify/interactions": "^3.3.25",
     "@date-io/luxon": "^2.9.0",
     "@material-ui/core": "^4.11.0",
     "@material-ui/icons": "^4.9.1",
     "@material-ui/lab": "^4.0.0-alpha.56",
     "@material-ui/pickers": "^4.0.0-alpha.12",
+    "axios": "^0.21.1",
     "chart.js": "^2.9.3",
     "chartjs-adapter-luxon": "^0.2.1",
     "classnames": "^2.2.6",
@@ -32,8 +33,7 @@
     "react": "^16.13.1",
     "react-chartjs-2": "^2.10.0",
     "react-dom": "^16.13.1",
-    "uuid": "^8.3.0",
-    "axios": "^0.21.1"
+    "uuid": "^8.3.0"
   },
   "devDependencies": {
     "@types/chart.js": "^2.9.23",
