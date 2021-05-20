@@ -118,7 +118,7 @@ function install_prereqs() {
         . ~/.bashrc
         git clone git://github.com/yyuu/pyenv.git ~/.pyenv
         echo 'export PATH="$HOME/.pyenv/bin:$PATH"' >> ~/.bashrc
-        echo 'eval "$(pyenv init -)"' >> ~/.bashrc
+        echo 'eval "$(pyenv init)"' >> ~/.bashrc
     fi
 
     . ~/.bashrc
