@@ -3,7 +3,7 @@
 export SHELL
 SHELL:=/bin/bash
 
-APP_NAME:=SFSDev
+APP_NAME:=SFS2
 
 ENABLE_MFA:=1
 ENABLE_SSE:=1
