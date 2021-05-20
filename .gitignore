@@ -188,3 +188,5 @@ package.json.orig
 next.config.js.bak
 **/parameters.json.bak
 app/amplify-stack/src/
+**/.ipynb_checkpoints
+**/__pycache__

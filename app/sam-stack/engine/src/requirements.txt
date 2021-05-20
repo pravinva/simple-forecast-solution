@@ -1,7 +1,0 @@
-requests
-numpy
-pandas
-pywren
-s3fs>=0.5.*
-scipy
-boto3

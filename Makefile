@@ -3,13 +3,11 @@
 export SHELL
 SHELL:=/bin/bash
 
-APP_NAME:=SFS
+APP_NAME:=SFSDev
 
 ENABLE_MFA:=1
 ENABLE_SSE:=1
 ENABLE_FRONTEND:=1
-
-S3_BUCKET:=simple-forecast-service
 
 docker_deploy_all:
 	docker build -t sfs-deploy .

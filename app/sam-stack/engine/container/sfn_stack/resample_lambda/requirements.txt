@@ -1,0 +1,8 @@
+awswrangler==2.6.0
+awslambdaric
+cloudpickle==1.6.0
+s3fs>=0.5.*
+fsspec
+tqdm==4.60.0
+requests
+toolz

@@ -221,11 +221,7 @@ Resources:
       UserData:
         Fn::Base64: !Sub |
           #!/bin/bash -x
-          git clone https://github.com/aws-samples/simple-forecast-solution.git
-          cd simple-forecast-solution/
-           
-          docker build -t sfs-deploy .
-          docker run sfs-deploy:latest make deploy_all
+          sudo -u ec2-user -i -- bash -c 'git clone https://github.com/aws-samples/simple-forecast-solution.git ; cd simple-forecast-solution ; source ./install.sh ; make deploy_all'
 
           # Shutdown the deployment instance
           poweroff

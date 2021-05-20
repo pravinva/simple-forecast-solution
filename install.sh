@@ -11,8 +11,8 @@ PY38_VERSION=3.8.6
 AMPLIFY_DIR=$ROOT_DIR/app/amplify-stack/
 SAM_DIR=$ROOT_DIR/app/sam-stack
 
-AMPLIFY_APP_NAME=${1:-SFS}
-AMPLIFY_APP_ENV=alpha
+AMPLIFY_APP_NAME=${1:-SFS2}
+AMPLIFY_APP_ENV=delta
 AMPLIFY_META_JSON=$AMPLIFY_DIR/amplify/backend/amplify-meta.json
 AMPLIFY_PROVIDER_INFO=$AMPLIFY_DIR/amplify/team-provider-info.json
 AMPLIFY_SNS_EMAIL=myforecast@amazon.com
@@ -26,6 +26,13 @@ AWSWRANGLER_ZIP=/tmp/$(basename $AWSWRANGLER_URL)
 ENABLE_MFA=${2:-1}
 ENABLE_SSE=${3:-1}
 ENABLE_FRONTEND=${4:-1}
+
+#export AWS_IAM_ROLE=`curl -sL http://169.254.169.254/latest/meta-data/iam/security-credentials/`
+#export AWS_ACCESS_KEY_ID=`curl -sL http://169.254.169.254/latest/meta-data/iam/security-credentials/$AWS_IAM_ROLE/ | jq -r '.AccessKeyId'`
+#export AWS_SECRET_ACCESS_KEY=`curl -sL http://169.254.169.254/latest/meta-data/iam/security-credentials/$AWS_IAM_ROLE/ | jq -r '.SecretAccessKey'`
+#export AWS_TOKEN=`curl -sL http://169.254.169.254/latest/meta-data/iam/security-credentials/$AWS_IAM_ROLE/ | jq -r '.Token'`
+#export AWS_AZ=`curl -s http://169.254.169.254/latest/meta-data/placement/availability-zone`
+#export AWS_DEFAULT_REGION="`echo \"$AWS_AZ\" | sed -e 's:\([0-9][0-9]*\)[a-z]*\$:\\1:'`"
 
 
 function get_aws_region() {
@@ -110,8 +117,11 @@ function install_prereqs() {
     then
         . ~/.bashrc
         git clone git://github.com/yyuu/pyenv.git ~/.pyenv
-        echo 'export PATH="$HOME/.pyenv/bin:$PATH"' >> ~/.bashrc
-        echo 'eval "$(pyenv init -)"' >> ~/.bashrc
+
+	echo 'export PYENV_ROOT="$HOME/.pyenv"' >> ~/.bashrc
+	echo 'export PATH="$PYENV_ROOT/bin:$PATH"' >> ~/.bashrc
+	echo 'eval "$(pyenv init --path)"' >> ~/.bashrc
+	echo 'eval "$(pyenv init -)"' >> ~/.bashrc
     fi
 
     . ~/.bashrc
@@ -120,7 +130,18 @@ function install_prereqs() {
 
     pyenv global $PY38_VERSION
     pip install pipenv==2020.11.15
-    pip install aws-sam-cli==1.13.2
+    pip install --force-reinstall \
+        aws-sam-cli==1.13.2 \
+        aws-cdk.core==1.100.0 \
+        aws-cdk.aws_lambda==1.100.0 \
+        aws-cdk.aws_ecr==1.100.0 \
+        aws-cdk.aws-iam==1.100.0 \
+        aws-cdk.aws-glue==1.100.0 \
+        aws-cdk.aws-s3==1.100.0 \
+        aws-cdk.aws-s3-assets==1.100.0 \
+        aws-cdk.aws-s3-deployment==1.100.0 \
+        aws-cdk.aws-stepfunctions==1.100.0 \
+        aws-cdk.aws-stepfunctions-tasks==1.100.0
 
     mkdir -p ~/.aws/
     REGION=$(curl -s http://169.254.169.254/latest/meta-data/placement/availability-zone | sed 's/[a-z]$//')
@@ -134,6 +155,7 @@ function install_prereqs() {
     curl -L https://raw.githubusercontent.com/tj/n/master/bin/n -o n ; \
     bash n lts ; \
     npm install -g @aws-amplify/cli@4.45.0
+    npm install -g aws-cdk
 
     set +x
 }
@@ -394,6 +416,24 @@ function deploy_engine_stack() {
 }
 
 
+function deploy_engine_stack2() {
+    cat > >(cut -c 5-) <<-EOF
+    --------------------------
+    DEPLOYING SFS ENGINE STACK
+    --------------------------
+	EOF
+
+    source ~/.bashrc
+    cd $SAM_DIR/engine/container
+
+    pyenv global $PY38_VERSION
+
+    cdk bootstrap
+    cdk deploy --require-approval never -O /tmp/engine-stack-outputs.json \
+	    --context app_id=$(get_amplify_app_id)
+}
+
+
 function deploy_amznfcast_stack() {
     cat > >(cut -c 5-) <<-EOF
     -----------------------------------
@@ -500,11 +540,12 @@ function deploy_aux_stack() {
 
     FCAST_LAMBDA=voyagerForecastLambda-${AMPLIFY_APP_ENV}
     ENGINE_STACK=sam-engine-$(get_amplify_app_id)
-    ENGINE_LAMBDA=$(aws cloudformation list-stack-resources \
-        --stack-name $ENGINE_STACK \
-        --query "StackResourceSummaries[?LogicalResourceId=='EngineForecastFunction'].PhysicalResourceId" \
-        --output text
-    )
+#   ENGINE_LAMBDA=$(aws cloudformation list-stack-resources \
+#       --stack-name $ENGINE_STACK \
+#       --query "StackResourceSummaries[?LogicalResourceId=='EngineForecastFunction'].PhysicalResourceId" \
+#       --output text
+#   )
+    ENGINE_LAMBDA=$( cat /tmp/engine-stack-outputs.json | jq -r '."SfnStack-'$(get_amplify_app_id)'".SfsStateMachineARN' )
 
     rm -rf /tmp/tmp_json
 
@@ -770,7 +811,7 @@ function deploy_all() {
 
     [[ $ENABLE_FRONTEND == 1 ]] && deploy_amplify_frontend
 
-    deploy_engine_stack
+    deploy_engine_stack2
     deploy_amznfcast_stack
     deploy_aux_stack
 

@@ -78,7 +78,7 @@
           ]
         },
         "Runtime": "python3.8",
-        "Timeout": "25",
+        "Timeout": "900",
         "MemorySize": "2048",
         "Code": {
           "S3Bucket": {

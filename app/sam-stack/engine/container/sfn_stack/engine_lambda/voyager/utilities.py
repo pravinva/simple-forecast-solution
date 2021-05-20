@@ -6,6 +6,7 @@ import numbers
 import datetime
 import boto3
 import numpy as np
+import pandas as pd
 
 from warnings import warn
 from numpy.lib.stride_tricks import as_strided
@@ -24,6 +25,11 @@ DATA_COLS = ["timestamp", "channel", "item_id", "demand", "family"]
 
 # Only the "demand" column is of type `int`, all others are `str`
 INPUT_DTYPE = {c: (float if c == "demand" else str) for c in DATA_COLS}
+
+# Forecast numeric precision
+ROUND = 4
+SFS_ERROR_COL = "Voyager_Error_MAPE"
+NAIVE_ERROR_COL = "Naive_Error_MAPE"
 
 
 def multi_horizon_test(out, window_len=8):
@@ -893,8 +899,80 @@ def get_experiments(debug=False):
     return experiments
 
 
-def best_model_forcast(config, use_all_backtests=True, model_name=None,
-    ignore_naive=False, debug=False):
+def forecast_df(row):
+    """Make a dataframe of forecast data.
+
+    """
+
+    item_id = row["item_name"]
+    channel = row["channel_name"]
+    family = row["category_name"]
+    forecast = row["forecast"]
+    backtest_date = row["backtest_date"]
+    forecast_horizon_backtest= row["forecast_horizon_backtest"]
+    forecast_p90 = row["forecast_p90"]
+    forecast_p10 = row["forecast_p10"]
+    start_date = row["last_date"]
+    frequency = row["forecast_frequency"]
+    forecast_periods = len(forecast)
+    demand = row["demand"]
+    demand_periods = len(demand)
+    model_name = row["model_name"]
+
+    assert(isinstance(model_name, str))
+
+    forecast_dates = pd.date_range(start = start_date, periods=forecast_periods+1, freq=frequency)
+    forecast_series = pd.Series(forecast, index=forecast_dates[1:])
+    backtest_dates= pd.date_range(start = backtest_date, periods=forecast_periods+1, freq=frequency)
+    forecast_backtest = pd.Series(forecast_horizon_backtest, index=backtest_dates[1:])
+    forecast_p90_series = pd.Series(forecast_p90, index=forecast_dates[1:])
+    forecast_p10_series = pd.Series(forecast_p10, index=forecast_dates[1:])
+
+    demand_dates = pd.date_range(end = start_date, periods=demand_periods, freq=frequency)
+    demand_series = pd.Series(demand, index=demand_dates)
+
+    df_sku = pd.DataFrame({
+        "demand": demand_series,
+        "forecast": forecast_series,
+        "forecast_backtest": forecast_backtest, 
+        "forecast_p90": forecast_p90_series, 
+        "forecast_p10": forecast_p10_series
+    })
+
+    df_sku["model_name"] = model_name
+
+    sku_sfs_error= row[SFS_ERROR_COL]
+    sku_naive_error = row[NAIVE_ERROR_COL]
+
+    df_sku["item_id"] = item_id
+    df_sku["channel"] = channel
+    df_sku["family"] = family
+
+    # backtest metrics
+    ix_backtest = ~df_sku["forecast_backtest"].isnull()
+    ys_backtest = df_sku[ix_backtest]["demand"]
+    yp_backtest = df_sku[ix_backtest]["forecast_backtest"]
+
+    ape_backtest = calc_ape(ys_backtest, yp_backtest)
+    aape_backtest = calc_aape(ys_backtest, yp_backtest)
+
+    df_sku.loc[ix_backtest,"sfs_bt_aape"] = aape_backtest.round(ROUND)
+    df_sku.loc[ix_backtest,"sfs_bt_ape"] = ape_backtest.round(ROUND)
+    df_sku.loc[ix_backtest,"sfs_bt_acc"] = 1.0 - ape_backtest.round(ROUND)
+
+    # historic (temporal) cross-validation metrics
+    df_sku["naive_cv_error"] = sku_naive_error.round(ROUND)
+    df_sku["naive_cv_acc"] = 1 - df_sku["naive_cv_error"].round(ROUND)
+
+    df_sku["sfs_cv_error"] = sku_sfs_error.round(ROUND)
+    df_sku["sfs_cv_acc"] = 1 - df_sku["sfs_cv_error"].round(ROUND)
+
+    df_sku.reset_index(inplace=True)
+    return df_sku
+
+
+def best_model_forecast(config, use_all_backtests=True, model_name=None,
+    quantile=None, ignore_naive=False, debug=False):
     """
     This is the main function that is called from this module
 
@@ -940,7 +1018,6 @@ def best_model_forcast(config, use_all_backtests=True, model_name=None,
     # Get the naive and exponential-smoothing (ES) baseline forecasts
     ys_naive, yp_naive = backtest_slice_forecast(config, naive)
     ys_es, yp_es = backtest_slice_forecast(config, es)
-
     naive_mape = calc_mape(ys_naive, yp_naive)
     es_mape = calc_mape(ys_es, yp_es)
 
@@ -963,7 +1040,7 @@ def best_model_forcast(config, use_all_backtests=True, model_name=None,
 
     for i, exp in enumerate(experiments, start=1):
         ys, yp = backtest_slice_forecast(config, exp)
-        cost = calc_cost(ys, yp)
+        cost = calc_cost(ys, yp, quantile=quantile)
         results.append(cost)
 
     # find the best model according to the multiple backtesting results
@@ -1000,30 +1077,43 @@ def best_model_forcast(config, use_all_backtests=True, model_name=None,
 
     best_model["Voyager_Historic_Demand"] = ys_hist.tolist()
 
-    best_model["Voyager_Forecast_W-1"] = forecasts[:, 7].tolist()
-    best_model["Voyager_Forecast_W-8"] = forecasts[:, 0].tolist()
+#   best_model["Voyager_Forecast_W-1"] = forecasts[:, 7].tolist()
+#   best_model["Voyager_Forecast_W-8"] = forecasts[:, 0].tolist()
 
     best_model["Voyager_Error"] = engine_mape
     best_model["Voyager_Error_MAPE"] = engine_mape
 
-    best_model["forecast_horizon_backtest"] = yp_engine_backtest.round(0)
-    best_model["forecast"] = yp_engine_fcast.round(0)
+    best_model["forecast_horizon_backtest"] = yp_engine_backtest.round(0).tolist()
+    best_model["forecast"] = yp_engine_fcast.round(0).tolist()
 
     best_model["forecast_p90"] = np.clip(
         generate_forecast_p90(config, best_model),
         0,
         2 * config["demand"][-config["horizon"] :].max(),
-    )
+    ).tolist()
+
     best_model["forecast_p10"] = np.clip(
         generate_forecast_p10(config, best_model),
         0,
         2 * config["demand"][-config["horizon"] :].max(),
-    )
+    ).tolist()
 
     best_model.pop("model", None)
 
+    # convert payload to JSON serializable content
+
     dict_results = {**config, **best_model}
     dict_results.pop("category_sum", None)
+
+    dict_results["demand"] = list(dict_results["demand"])
+    dict_results["demand_p10"] = list(dict_results["demand_p10"])
+    dict_results["demand_p90"] = list(dict_results["demand_p90"])
+
+    dict_results["first_date"] = dict_results["first_date"].strftime("%Y-%m-%d")
+    dict_results["last_date"] = dict_results["last_date"].strftime("%Y-%m-%d")
+    dict_results["backtest_date"] = dict_results["backtest_date"].strftime("%Y-%m-%d")
+
+    # ~~~
 
     return dict_results
 
@@ -1305,8 +1395,9 @@ def backtest_slice_forecast(config, experiment):
             ]
         results = np.vstack(forecasts)
 
-    results = multi_horizon_test(results[:, :8]) - 1
-    historic_windows = rolling_window(historic_demand, 8)
+    results = multi_horizon_test(results[:,:8], results.shape[1]) - 1
+    #historic_windows = rolling_window(historic_demand, 8)
+    historic_windows = rolling_window(historic_demand, results.shape[1])
     results = results[: historic_windows.shape[0]]
 
     return (historic_windows, results.round(0))
@@ -1436,7 +1527,7 @@ def calc_mape(ys, yp):
     return np.nanmean(calc_ape(ys, yp))
 
 
-def calc_cost(ys, yp):
+def calc_cost(ys, yp, quantile=None):
     """"""
 
     historic_demand, results = ys, yp
@@ -1451,7 +1542,8 @@ def calc_cost(ys, yp):
     except IndexError:
         pass
 
-    quantile = 0.6
+    if quantile is None:
+        quantile = 0.6
 
     return np.mean(
         np.maximum(quantile * residual.ravel(), (quantile - 1) * residual.ravel())

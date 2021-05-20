@@ -66,7 +66,7 @@ def forecast_fourier(xs, cfg):
         traceback.print_exc()
         yp = np.zeros(horiz)
 
-    return yp.round(0)
+    return yp.clip(0).round(0)
 
 
 def forecast_naive(xs, cfg):
