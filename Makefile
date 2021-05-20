@@ -9,8 +9,6 @@ ENABLE_MFA:=1
 ENABLE_SSE:=1
 ENABLE_FRONTEND:=1
 
-S3_BUCKET:=simple-forecast-service
-
 docker_deploy_all:
 	docker build -t sfs-deploy .
 	docker run -it sfs-deploy:latest make deploy_all
