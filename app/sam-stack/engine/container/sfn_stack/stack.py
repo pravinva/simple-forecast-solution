@@ -17,6 +17,8 @@ class SfnStack(cdk.Stack):
     def __init__(self, scope: cdk.Construct, construct_id: str, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
+        app_id = self.node.try_get_context("app_id")
+
         # deploy S3 bucket to hold glue scripts
         bucket_name = kwargs.get("bucket_name", "EtlAssetsBucket")
         bucket = aws_s3.Bucket(self, bucket_name)
@@ -32,7 +34,6 @@ class SfnStack(cdk.Stack):
         # deploy glue iam role
         glue_role = \
             aws_iam.Role(self, "GlueEtlRole",
-                role_name="GlueEtlRole",
                 assumed_by=aws_iam.CompositePrincipal(
                     aws_iam.ServicePrincipal("glue.amazonaws.com"),
                     aws_iam.ServicePrincipal("lambda.amazonaws.com")
@@ -49,7 +50,7 @@ class SfnStack(cdk.Stack):
 
         # deploy glue etl job
         glue_etl_job = aws_glue.CfnJob(self, "GlueEtlJob",
-            name="GlueEtlJob",
+            name=f"GlueEtlJob-{app_id}",
             glue_version="2.0",
             max_capacity=2,
             role=glue_role.role_name,
@@ -62,7 +63,6 @@ class SfnStack(cdk.Stack):
 
         # deploy glue resampling etl job
         glue_resample_job = aws_glue.CfnJob(self, "GlueResampleJob",
-                name="GlueResampleJob",
                 glue_version="2.0",
                 max_capacity=4,
                 execution_property=aws_glue.CfnJob.ExecutionPropertyProperty(
@@ -111,9 +111,12 @@ class SfnStack(cdk.Stack):
 
         """
 
+        print(glue_etl_job)
+        print(glue_etl_job.name)
+
         # define sfn glue etl step
         glue_etl_task = tasks.GlueStartJobRun(self, "GlueEtlJobRun",
-            glue_job_name=glue_etl_job.name,
+            glue_job_name=f"GlueEtlJobRun-{app_id}",
             arguments=sfn.TaskInput.from_object({
                 "--s3_input_path": sfn.JsonPath.string_at("$.s3_input_path"),
                 "--freq": sfn.JsonPath.string_at("$.freq"),
@@ -160,7 +163,7 @@ class SfnStack(cdk.Stack):
         # ~~~
 
         glue_pred_job = aws_glue.CfnJob(self, "PredictJob",
-            name="PredictJob",
+            #name="PredictJob",
             glue_version="2.0",
             max_capacity=2,
             role=glue_role.role_name,
@@ -182,7 +185,7 @@ class SfnStack(cdk.Stack):
         )
 
         glue_pred_task = tasks.GlueStartJobRun(self, "PredictJobRun",
-            glue_job_name=glue_pred_job.name,
+            glue_job_name=f"PredictJobRun-{app_id}",
             arguments=sfn.TaskInput.from_object({
                 "--lambda_arn": engine_lambda_function.function_arn,
                 "--additional-python-modules":
@@ -204,7 +207,7 @@ class SfnStack(cdk.Stack):
         # ~~~
 
         glue_report_job = aws_glue.CfnJob(self, "MakeReportJob",
-            name="MakeReportJob",
+            #name="MakeReportJob",
             glue_version="2.0",
             max_capacity=2,
             role=glue_role.role_name,
@@ -217,7 +220,7 @@ class SfnStack(cdk.Stack):
 
         glue_report_task = \
             tasks.GlueStartJobRun(self, "MakeReportTask",
-                glue_job_name=glue_report_job.name,
+            glue_job_name=f"MakeReportTask-{app_id}",
             arguments=sfn.TaskInput.from_object({
                 "--additional-python-modules":
                     ",".join(("pyarrow==2", "cloudpickle==1.6.0",

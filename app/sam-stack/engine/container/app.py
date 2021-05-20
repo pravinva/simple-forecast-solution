@@ -7,5 +7,6 @@ from sfn_stack.stack import SfnStack
 
 if __name__ == '__main__':
     app = core.App()
-    sfn_stack = SfnStack(app, "SfnStack")
+    app_id = app.node.try_get_context("app_id")
+    sfn_stack = SfnStack(app, f"SfnStack-{app_id}")
     app.synth()

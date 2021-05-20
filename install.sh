@@ -11,8 +11,8 @@ PY38_VERSION=3.8.6
 AMPLIFY_DIR=$ROOT_DIR/app/amplify-stack/
 SAM_DIR=$ROOT_DIR/app/sam-stack
 
-AMPLIFY_APP_NAME=${1:-SFS}
-AMPLIFY_APP_ENV=alpha
+AMPLIFY_APP_NAME=${1:-SFS2}
+AMPLIFY_APP_ENV=delta
 AMPLIFY_META_JSON=$AMPLIFY_DIR/amplify/backend/amplify-meta.json
 AMPLIFY_PROVIDER_INFO=$AMPLIFY_DIR/amplify/team-provider-info.json
 AMPLIFY_SNS_EMAIL=myforecast@amazon.com
@@ -117,8 +117,11 @@ function install_prereqs() {
     then
         . ~/.bashrc
         git clone git://github.com/yyuu/pyenv.git ~/.pyenv
-        echo 'export PATH="$HOME/.pyenv/bin:$PATH"' >> ~/.bashrc
-        echo 'eval "$(pyenv init)"' >> ~/.bashrc
+
+	echo 'export PYENV_ROOT="$HOME/.pyenv"' >> ~/.bashrc
+	echo 'export PATH="$PYENV_ROOT/bin:$PATH"' >> ~/.bashrc
+	echo 'eval "$(pyenv init --path)"' >> ~/.bashrc
+	echo 'eval "$(pyenv init -)"' >> ~/.bashrc
     fi
 
     . ~/.bashrc
@@ -426,7 +429,8 @@ function deploy_engine_stack2() {
     pyenv global $PY38_VERSION
 
     cdk bootstrap
-    cdk deploy --require-approval never -O /tmp/engine-stack-outputs.json
+    cdk deploy --require-approval never -O /tmp/engine-stack-outputs.json \
+	    --context app_id=$(get_amplify_app_id)
 }
 
 
@@ -541,7 +545,7 @@ function deploy_aux_stack() {
 #       --query "StackResourceSummaries[?LogicalResourceId=='EngineForecastFunction'].PhysicalResourceId" \
 #       --output text
 #   )
-    ENGINE_LAMBDA=$( cat /tmp/engine-stack-outputs.json | jq -r '.SfnStack.SfsStateMachineARN' )
+    ENGINE_LAMBDA=$( cat /tmp/engine-stack-outputs.json | jq -r '."SfnStack-'$(get_amplify_app_id)'".SfsStateMachineARN' )
 
     rm -rf /tmp/tmp_json
 
