@@ -384,7 +384,7 @@ function deploy_engine_stack() {
 
     pyenv global $PY37_VERSION
 
-    pip install aws-sam-cli
+    pip install aws-sam-cli==1.13.2
     sam build --config-file $SAM_DIR/pywren/samconfig.toml
     sam deploy --config-file $SAM_DIR/pywren/samconfig.toml
 
@@ -467,7 +467,7 @@ function deploy_amznfcast_stack() {
 
     pyenv global $PY37_VERSION
 
-    pip install aws-sam-cli
+    pip install aws-sam-cli==1.13.2
 
     sam build --config-file $SAM_DIR/amznfcast/samconfig.toml
     sam deploy --force-upload --config-file $SAM_DIR/amznfcast/samconfig.toml
