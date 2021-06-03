@@ -1,4 +1,5 @@
 pandas
 s3fs
-boto3
+boto3>=1.17.86
+botocore>=1.20.82
 numpy==1.20.2
