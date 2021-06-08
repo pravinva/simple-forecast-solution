@@ -145,3 +145,7 @@ def forecast_holt(tst, config):
             except:
                 traceback.print_exc()
                 return np.zeros(horizon)
+
+#
+# REFACTOR
+#

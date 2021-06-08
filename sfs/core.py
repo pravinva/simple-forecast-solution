@@ -2,12 +2,20 @@ import traceback
 import pandas as pd
 import numpy as np
 
+from collections import OrderedDict
 from functools import partial
 from tqdm.auto import tqdm
+
+from scipy import signal, stats
 from numpy import fft
 from numpy.lib.stride_tricks import sliding_window_view
 
+EXP_COLS = ["timestamp", "channel", "family", "item_id", "demand"]
+GROUP_COLS = ["channel", "family", "item_id"]
 OBJ_METRICS = ["smape_mean"]
+
+# these define how long a tail period is for each freq.
+TAIL_LEN = {"D": 56, "W": 8, "M": 2}
 
 
 #
@@ -261,166 +269,6 @@ def forecast_arima(y, horiz, q=1, d=0, p=1, trim_zeros=True,
 
 
 #
-# Experiments
-#
-def run_cv(func, y, horiz, step=1, **kwargs):
-    """Run a sliding-window temporal cross-validation (aka backtest) using a 
-    given forecasting function (`func`).
-    
-    """
-    
-    # allow only 1D time-series arrays
-    assert(y.ndim == 1)
-    
-    #
-    # |  y     |  horiz  |..............|
-    # |  y      |  horiz  |.............|
-    # |  y       |  horiz  |............|
-    #   ::
-    #   ::
-    # |  y                    | horiz   |
-    # 
-    ixs = range(1, len(y)-horiz+1, step)
-    yp = np.vstack([func(y=y[:i], horiz=horiz) for i in ixs])
-    
-    return yp
-
-
-def run_cv_select(y, horiz, obj_metric="smape_mean", show_progress=False):
-    """Run the timeseries cross-val model selection across the forecasting
-    functions for a single timeseries (`y`) and horizon length (`horiz`).
-
-    """
-
-    assert(y.ndim == 1)
-    assert(obj_metric in OBJ_METRICS)
-
-    # these are the model configurations to run
-    func_delayed = [
-        ("naive", partial(naive)),
-        ("naive|local", partial(naive, local_mode=True)),
-        ("exp_smooth", partial(exp_smooth)),
-
-        # fourier forecasts
-        ("fourier|n_harm=25", partial(fourier, n_harm=25))]
-
-    if show_progress:
-        func_iter = tqdm(func_delayed)
-    else:
-        func_iter = iter(func_delayed)
-
-    # sliding window horizon actuals
-    Y = sliding_window_view(y[1:], horiz)
-
-    Yps = []
-
-    for model_name, func in func_iter:
-        Yp = run_cv(func, y, horiz)
-        assert(Yp.shape == Y.shape)
-
-        # generate the final forecast
-        yhat = func(y, horiz)
-        assert(len(yhat) == horiz)
-
-        Yps.append((model_name, Yp, yhat))
-
-    # calculate the errors for each model configuration
-    err_delayed = [("smape", calc_smape)]
-    results_rows = []
-
-    for model_name, Yp, yhat in Yps:
-        results = { name : func(Y, Yp) for name, func in err_delayed }
-
-        # keep the final forecast for the model
-        results["yhat"] = yhat
-        results["model"] = model_name
-        results_rows.append(results)
-
-    df_results = pd.DataFrame(results_rows)
-
-    # calc. metric stats
-    for metric, _ in err_delayed:
-        df_results[f"{metric}_mean"] = \
-            df_results[metric].apply(np.nanmean).round(4)
-        df_results[f"{metric}_median"] = \
-            df_results[metric].apply(np.nanmedian).round(4)
-        df_results[f"{metric}_std"] = \
-            df_results[metric].apply(np.nanstd).round(4)
-
-    assert(obj_metric in df_results)
-
-    # rank results according to the `obj_metric`
-    df_results.sort_values(by=obj_metric, ascending=True, inplace=True)
-
-    return Yps, df_results
-
-
-#
-# Error functions
-#
-def calc_smape(y, yp, axis=0):
-    """Calculate the symmetric mean absolute percentage error (sMAPE).
-    
-    sMAPE is calulated as follows:
-    
-        sMAPE = Σ|y - yp| / Σ(y + yp)
-    
-    where, 0.0 <= sMAPE <= 1.0 (lower is better)
-    
-    """
-    
-    try:
-        smape = np.nansum(np.abs(y - yp), axis=axis) / \
-                    np.nansum(y + yp, axis=axis)
-    except ZeroDivisionError:
-        smape = 0.0
-        
-    return smape.round(4).astype("float16")
-
-
-#
-# Utilities
-#
-def preprocess(y, local_mode=False, use_log=False , trim_zeros=False):
-    """
-    """
-
-    assert(len(y) > 0)
-
-    if len(y) > 8 and trim_zeros:
-        y = np.trim_zeros(y, trim ='f')
-
-    if len(y) == 1:
-        y = np.append(y, 0)
-
-    if use_log:
-        y = np.log1p(y)
-
-    return y
-
-
-def data_health_check(df):
-    """Perform a health check of a timeseries dataset (provided as dataframe).
-
-    """
-
-    # TODO:
-
-    return
-
-
-def postprocess(df, df_results):
-    """Post-process raw results to a user-friendly dataframe format, including
-    timestamps etc. for easy file exporting.
-
-    """
-
-    # TODO:
-
-    return
-
-
-#
 # ARIMA classes
 #
 class LinearModel:
@@ -589,3 +437,423 @@ class ARIMA(LinearModel):
             feat = np.r_[y[-(self.p + n) + i: -n + i], np.zeros(self.q)]
             y[x.shape[0] + i] = super().predict(feat[None, :])
         return self.return_output(y)
+
+
+#
+# Analysis
+#
+def analyze_dataset(df, freq):
+    """Run analyses on each timeseries, e.g. to determine
+    retired/intermittent/continuous timeseries. This needs to be run on a
+    non-normalized dataframe (i.e. prior to pre-processing in the pipeline).
+
+    """
+
+    def _retired(y):
+        return y[-tail_len:].sum() < 1
+
+    def _life_periods(y):
+        y = np.trim_zeros(y)
+        y = y[np.logical_not(np.isnan(y)) & (y > 0)]
+        return len(y)
+
+    def _category(r):
+        if r["retired"]:
+            if r["life_periods"] < r["len"] / 4.0:
+                return "short"
+            return "med"
+        else:
+            return "cont"
+
+    def _spectral_entropy(y):
+        y = y[np.logical_not(np.isnan(y))]
+        f, Pxx_den = signal.periodogram(y)
+        psd_norm = np.divide(Pxx_den, Pxx_den.sum())
+        psd_norm += 1e-6
+        return -np.multiply(psd_norm, np.log2(psd_norm)).sum().round(2)
+
+    def _lambda_boxcox(y):
+        return stats.boxcox(y.clip(lower=0.1))[1].round(2)
+
+    assert "demand" in df
+
+    tail_len = TAIL_LEN[freq]
+
+    df_analysis = \
+        ts_groups(df).agg({"demand": [_retired, _life_periods, len,
+                                      _spectral_entropy, _lambda_boxcox]})
+
+    # flatten column names
+    df_analysis.columns = ["|".join([c.lstrip("_") for c in col])
+                              .strip(" |")
+                              .replace("demand|", "")
+                           for col in df_analysis.columns.values]
+
+    df_analysis["intermittent"] = df_analysis["spectral_entropy"] > 5.0
+
+    # classify series as short, medium ("med"), or continuous ("cont")
+    df_analysis["category"] = df_analysis.apply(_category, axis=1)
+
+    df_analysis = df_analysis.astype({"life_periods": int, "len": int})
+
+    return df_analysis
+
+
+def summarize(df, freq):
+    """Analyze the timeseries of a dataframe, providing summaries of missing
+    dates, min-max values, counts etc.
+
+    """
+
+    # no. of missing dates b/w the first and last dates of the timeseries
+    def null_count(xs):
+        return xs.isnull().sum().astype(int)
+
+    # no. days of non-zero demand
+    def nonzero_count(xs):
+        return (xs > 0).sum().astype(int)
+
+    def date_count(xs):
+        return xs.index.nunique()
+
+    df_grps = df.groupby(GROUP_COLS)
+
+    # get per-sku summary
+    df_sku_summary = \
+        df_grps.agg({"demand": [null_count, nonzero_count, np.nanmean, np.nanmedian],
+                     "timestamp": [min, max, date_count]}) \
+               .rename({"null_count": "missing_dates"}, axis=1)
+
+    # get overall summary
+    # - most comm
+
+    return df_sku_summary
+
+
+#
+# Experiments
+#
+def run_cv(func, y, horiz, step=1, **kwargs):
+    """Run a sliding-window temporal cross-validation (aka backtest) using a 
+    given forecasting function (`func`).
+    
+    """
+    
+    # allow only 1D time-series arrays
+    assert(y.ndim == 1)
+    
+    #
+    # |  y     |  horiz  |..............|
+    # |  y      |  horiz  |.............|
+    # |  y       |  horiz  |............|
+    #   ::
+    #   ::
+    # |  y                    | horiz   |
+    # 
+    ixs = range(1, len(y)-horiz+1, step)
+    yp = np.vstack([func(y=y[:i], horiz=horiz) for i in ixs])
+    
+    return yp
+
+
+def run_cv_select(y, horiz, obj_metric="smape_mean", show_progress=False):
+    """Run the timeseries cross-val model selection across the forecasting
+    functions for a single timeseries (`y`) and horizon length (`horiz`).
+
+    """
+
+    assert len(y) > 0
+    assert y.ndim == 1
+    assert obj_metric in OBJ_METRICS
+
+    # pad a length sequence with a single `1`
+    if len(y) < 2:
+        y = np.pad(y, [1,0], constant_values=1)
+
+    # these are the model configurations to run
+    func_delayed = [
+        ("naive", partial(naive)),
+        ("naive|local", partial(naive, local_mode=True)),
+        ("exp_smooth", partial(exp_smooth)),
+
+        # fourier forecasts
+        ("fourier|n_harm=25", partial(fourier, n_harm=25))]
+
+    if show_progress:
+        func_iter = tqdm(func_delayed)
+    else:
+        func_iter = iter(func_delayed)
+
+    # shrink the horizon if it is >= the timeseries
+    if horiz >= len(y):
+        horiz = len(y) - 1
+
+    # sliding window horizon actuals
+    Y = sliding_window_view(y[1:], horiz)
+
+    Yps = []
+
+    for model_name, func in func_iter:
+        Yp = run_cv(func, y, horiz)
+        assert(Yp.shape == Y.shape)
+
+        # generate the final forecast
+        yhat = func(y, horiz)
+        assert(len(yhat) == horiz)
+
+        Yps.append((model_name, Yp, yhat))
+
+    # calculate the errors for each model configuration
+    err_delayed = [("smape", calc_smape)]
+    results_rows = []
+
+    for model_name, Yp, yhat in Yps:
+        results = { name : func(Y, Yp) for name, func in err_delayed }
+
+        # keep the final forecast for the model
+        results["yhat"] = yhat
+        results["model"] = model_name
+        results_rows.append(results)
+
+    df_results = pd.DataFrame(results_rows)
+
+    # calc. metric stats
+    for metric, _ in err_delayed:
+        df_results[f"{metric}_mean"] = \
+            df_results[metric].apply(np.nanmean).round(4)
+        df_results[f"{metric}_median"] = \
+            df_results[metric].apply(np.nanmedian).round(4)
+        df_results[f"{metric}_std"] = \
+            df_results[metric].apply(np.nanstd).round(4)
+
+    assert obj_metric in df_results
+
+    # rank results according to the `obj_metric`
+    df_results.sort_values(by=obj_metric, ascending=True, inplace=True)
+    df_results["rank"] = np.arange(len(df_results)) + 1
+
+    return df_results
+
+
+def run_pipeline(df, horiz, freq, obj_metric="smape_mean"):
+    """Run he CV model selection over *all* timeseries in a dataframe.
+    Note that this is a generator and will yield one results dataframe per
+    timeseries at a single iteration.
+
+    """
+
+    df = load_data(df)
+
+    # resample the input dataset to the desired frequency.
+    df = resample(df, freq)
+
+    for key, df_grp in df.groupby(GROUP_COLS, as_index=False, sort=False):
+        y = df_grp["demand"].values
+
+        # generate forecast results for a single timeseries
+        df_results = run_cv_select(y, horiz, obj_metric)
+        df_results.insert(0, "channel", key[0])
+        df_results.insert(1, "family", key[1])
+        df_results.insert(2, "item_id", key[2])
+
+        # make the historical dataframe
+        df_hist = df_grp[EXP_COLS]
+        df_hist["type"] = "actual"
+
+        # get the forecast from the best model
+        yhat = df_results.iloc[0]["yhat"]
+        yhat_ts = pd.date_range(df_hist["timestamp"].max(),
+                                periods=len(yhat)+1, freq=freq, closed="right")
+
+        assert len(yhat_ts) > 0
+        assert len(yhat_ts) == len(yhat)
+
+        # make the forecast dataframe
+        df_pred = pd.DataFrame({"demand": yhat, "timestamp": yhat_ts})
+        df_pred.insert(0, "channel", key[0])
+        df_pred.insert(1, "family", key[1])
+        df_pred.insert(2, "item_id", key[2])
+        df_pred["type"] = "fcast"
+        df_pred.set_index("timestamp", drop=False, inplace=True)
+
+        # combine historical and predictions dataframes, re-ordering columns
+        df_pred = df_hist.append(df_pred)
+
+        yield df_results, df_pred
+
+    return
+
+
+#
+# Error metrics
+#
+def calc_smape(y, yp, axis=0):
+    """Calculate the symmetric mean absolute percentage error (sMAPE).
+    
+    sMAPE is calulated as follows:
+    
+        sMAPE = Σ|y - yp| / Σ(y + yp)
+    
+    where, 0.0 <= sMAPE <= 1.0 (lower is better)
+    
+    """
+    
+    try:
+        smape = np.nansum(np.abs(y - yp), axis=axis) / \
+                    np.nansum(y + yp, axis=axis)
+    except ZeroDivisionError:
+        smape = 0.0
+        
+    return smape.round(4)
+
+
+#
+# Data wrangling
+#
+def resample(df, freq):
+    """Resample a dataframe to a new frequency
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+    freq : str
+
+    """
+
+    df = df.groupby([pd.Grouper(key="timestamp", freq=freq)] + GROUP_COLS,
+                    sort=False) \
+           .agg({"demand": sum}) \
+           .reset_index()
+
+    # put the dataframe index back to a timeseries index
+    df.set_index("timestamp", drop=False, inplace=True)
+
+    return df
+
+
+def impute_dates(df, freq, dt_stop=None):
+    """
+
+    Parameters
+    ----------
+    dd : pd.DataFrame
+    freq : str
+    dt_stop : str or datetime, optional
+        The final date in the timeseries, it will be inferred if not specified.
+        Otherwise, dates will be imputed between the end of the the timeseries
+        and this date.
+
+    Returns
+    -------
+    pd.DataFrame
+
+    """
+
+    def impute_dates_grp(dd, freq, dt_stop):
+        assert(dd[GROUP_COLS].drop_duplicates().shape[0] == 1)
+        start = dd.index.min()
+        end = dd.index.max() if dt_stop is None else dt_stop
+        new_index = pd.date_range(start, end, freq=freq)
+        dd = dd.reindex(new_index)
+        dd["timestamp"] = dd.index
+        dd.loc[:,GROUP_COLS] = dd.loc[:,GROUP_COLS].ffill()
+        return dd
+
+    df = df.groupby(GROUP_COLS, as_index=False, sort=False) \
+           .apply(partial(impute_dates_grp, freq=freq, dt_stop=dt_stop))
+
+    return df
+
+#
+# Utilities
+#
+def load_data(pth):
+    """Read a raw input dataset from disk, S3, or a dataframe.
+
+    """
+
+    if isinstance(pth, str):
+        if pth.endswith(".csv.gz"):
+            _read_func = partial(pd.read_csv, compression="gzip")
+        elif pth.endswith(".csv"):
+            _read_func = partial(pd.read_csv)
+        else:
+            raise NotImplementedError
+
+        # cast exp. columns to correct types
+        df = _read_func(pth)
+    elif isinstance(pth, pd.DataFrame):
+        df = pth
+    else:
+        raise NotImplementedError
+
+    df = df.astype({"channel": str, "family": str, "item_id": str,
+                    "demand": float})
+
+    # set timeseries dataframe index
+    df["timestamp"] = pd.DatetimeIndex(df["timestamp"])
+    df.set_index("timestamp", drop=False, inplace=True)
+
+    return df
+
+
+def validate(df):
+    """Validate the timeseries dataframe
+
+    """
+
+    err_msgs = []
+    warn_msgs = []
+
+    # check column names
+    for col in EXP_COLS:
+        if col not in df:
+            err_msgs.append(f"**{col}** column missing")
+
+    msgs = {
+        "errors": err_msgs,
+        "warnings": warn_msgs
+    }
+
+    is_valid_file = len(err_msgs) == 0
+
+    return msgs, is_valid_file
+
+
+def preprocess(y, local_mode=False, use_log=False , trim_zeros=False):
+    """
+    """
+
+    assert(len(y) > 0)
+
+    if len(y) > 8 and trim_zeros:
+        y = np.trim_zeros(y, trim ='f')
+
+    if len(y) == 1:
+        y = np.append(y, 0)
+
+    if use_log:
+        y = np.log1p(y)
+
+    return y
+
+
+def postprocess(df, df_results):
+    """Post-process raw results to a user-friendly dataframe format, including
+    timestamps etc. for easy file exporting.
+
+    """
+
+    # TODO:
+
+    return
+
+
+def ts_groups(self, **groupby_kwds):
+    """Helper function to get the groups for a timeseries dataframe.
+
+    """
+    groupby_kwds.setdefault("as_index", False)
+    groupby_kwds.setdefault("sort", False)
+
+    return self.groupby(GROUP_COLS, **groupby_kwds)
