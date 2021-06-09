@@ -786,7 +786,8 @@ def impute_dates(df, freq, dt_stop=None):
         dt_stop = pd.Timestamp(dt_stop)
 
         # don't shrink timeseries
-        assert(dt_stop >= dd.index.max())
+        assert dt_stop >= dd.index.max(), \
+            "`dt_stop` must be >= the last date in this timeseries"
 
         # assign the new timeseries index
         dd = dd.reindex(pd.date_range(dd.index.min(), dt_stop, freq=freq))
