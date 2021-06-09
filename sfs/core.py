@@ -549,7 +549,7 @@ def create_model_grid():
         # fourier forecasts
         ("fourier|n_harm=25", partial(fourier, n_harm=25))]
 
-    return
+    return grid
 
 
 def run_cv(func, y, horiz, step=1, **kwargs):
@@ -648,17 +648,17 @@ def run_cv_select(y, horiz, obj_metric="smape_mean", show_progress=False):
     return df_results
 
 
-def run_pipeline(df, horiz, freq, obj_metric="smape_mean"):
+def run_pipeline(data, horiz, freq_in, freq_out, obj_metric="smape_mean"):
     """Run he CV model selection over *all* timeseries in a dataframe.
     Note that this is a generator and will yield one results dataframe per
     timeseries at a single iteration.
 
     """
 
-    df = load_data(df)
+    df = load_data(data, freq_in)
 
     # resample the input dataset to the desired frequency.
-    df = resample(df, freq)
+    df = resample(df, freq_out)
 
     for key, df_grp in df.groupby(GROUP_COLS, as_index=False, sort=False):
         y = df_grp["demand"].values
