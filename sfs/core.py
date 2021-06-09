@@ -710,6 +710,54 @@ def calc_smape(y, yp, axis=0):
 #
 # Data wrangling
 #
+def load_data(data, impute_freq=None):
+    """Read a raw timeseries dataset from disk, S3, or a dataframe. Note that
+    the "timestamp" column will be removed as a bonafide column and set as 
+    the dataframe (timeseries) index.
+
+    Parameters
+    ----------
+    data : str or pd.DataFrame
+        Path to the data file if `str`, otherwise a "raw" timeseries dataframe.
+    impute_freq : str or None; optional
+        If `str`, impute the missing dates between the first and last
+        dates, according to the sampling frequency `str` value.
+
+    Returns
+    -------
+    pd.DataFrame
+
+    """
+
+    if isinstance(data, str):
+        if data.endswith(".csv.gz"):
+            _read_func = partial(pd.read_csv, compression="gzip")
+        elif data.endswith(".csv"):
+            _read_func = partial(pd.read_csv)
+        else:
+            raise NotImplementedError
+
+        # cast exp. columns to correct types
+        df = _read_func(data)
+    elif isinstance(data, pd.DataFrame):
+        df = data
+    else:
+        raise NotImplementedError
+
+    # enforce column datatypes
+    df = df.astype({"channel": str, "family": str, "item_id": str,
+                    "demand": float})
+
+    # set timeseries dataframe index
+    df.set_index(pd.DatetimeIndex(df.pop("timestamp")), inplace=True)
+    df.index.name = None
+
+    if impute_freq is not None:
+        df = impute_dates(df, impute_freq)
+
+    return df
+
+
 def resample(df, freq):
     """Resample a dataframe to a new frequency. Note that if a period in the
     new frequency contains only nulls, then the resulting resampled sum is NaN.
@@ -782,37 +830,6 @@ def impute_dates(df, freq, dt_stop=None):
 #
 # Utilities
 #
-def load_data(data):
-    """Read a raw timeseries dataset from disk, S3, or a dataframe. Note that
-    the "timestamp" column will be removed as a bonafide column and set as 
-    the dataframe (timeseries) index.
-
-    """
-
-    if isinstance(data, str):
-        if data.endswith(".csv.gz"):
-            _read_func = partial(pd.read_csv, compression="gzip")
-        elif data.endswith(".csv"):
-            _read_func = partial(pd.read_csv)
-        else:
-            raise NotImplementedError
-
-        # cast exp. columns to correct types
-        df = _read_func(data)
-    elif isinstance(data, pd.DataFrame):
-        df = data
-    else:
-        raise NotImplementedError
-
-    # enforce column datatypes
-    df = df.astype({"channel": str, "family": str, "item_id": str,
-                    "demand": float})
-
-    # set timeseries dataframe index
-    df.set_index(pd.DatetimeIndex(df.pop("timestamp")), inplace=True)
-
-    return df
-
 
 def validate(df):
     """Validate the timeseries dataframe
