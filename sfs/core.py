@@ -1,4 +1,5 @@
 import traceback
+import statsmodels.api as sm
 import pandas as pd
 import numpy as np
 
@@ -15,7 +16,9 @@ GROUP_COLS = ["channel", "family", "item_id"]
 OBJ_METRICS = ["smape_mean"]
 
 # these define how long a tail period is for each freq.
-TAIL_LEN = {"D": 56, "W": 8, "M": 2}
+TAIL_LEN = {"D": 56, "W": 12, "M": 3}
+
+DC_PERIODS = {"D": 365, "W": 52, "M": 12}
 
 
 #
@@ -27,29 +30,62 @@ def forecaster(func):
     return values.
 
     """
-    def do_forecast(y, *args, **kwargs):
-        # ensure the input values are not null
-        return func(np.nan_to_num(y), *args, **kwargs)
+
+    def do_forecast(y, horiz, freq, **kwargs):
+        local_model = kwargs.get("local_model", False)
+        seasonal = kwargs.get("seasonal", False)
+        trim_zeros = kwargs.get("trim_zeros", False)
+
+        if trim_zeros:
+            y = np.trim_zeros(y, trim="f")
+
+        # pad singleton timeseries with a single zero
+        if len(y) == 1:
+            y = np.concatenate(([0], y))
+
+        if local_model:
+            y = y[-TAIL_LEN[freq]:]
+
+        y = np.nan_to_num(y)
+
+        # forecast via seasonal decomposition
+        if seasonal:
+            period = DC_PERIODS[freq]
+
+            if len(y) < 2 * period:
+                period = int(len(y) / 2)
+
+            kwargs.pop("seasonal")
+
+            dc = sm.tsa.seasonal_decompose(y, period=period, two_sided=False)
+
+            yp_seasonal = fourier(dc.seasonal, horiz, freq, seasonal=False)
+            yp_trend = func(np.nan_to_num(dc.trend), horiz, **kwargs)
+            yp_resid = func(np.nan_to_num(dc.resid), horiz, **kwargs)
+            yp = yp_seasonal + yp_trend + yp_resid
+        else:
+            # ensure the input values are not null
+            yp = func(y, horiz, **kwargs)
+
+        yp = np.nan_to_num(yp).clip(0).round(0)
+
+        return yp
+
     return do_forecast
 
 
 @forecaster
-def exp_smooth(y, horiz, **kwargs):
+def exsmooth(y, horiz, **kwargs):
     """
     """
 
     alpha = kwargs.get("alpha", 0.2)
-    local_mode = kwargs.get("local_mode", False)
-    use_log = kwargs.get("use_log", False)
 
     if len(y) > 8:
         y = np.trim_zeros(y, trim ='f')
 
-    if local_mode:
-        y = y[-8:]
-
-    if use_log:
-        y = np.log1p(y)
+#   if use_log:
+#       y = np.log1p(y)
 
     extra_periods = horiz-1
 
@@ -66,10 +102,10 @@ def exp_smooth(y, horiz, **kwargs):
 
     yp = np.array(f[-horiz:]).clip(0)
 
-    if use_log:
-        yp = np.exp(yp)
+#   if use_log:
+#       yp = np.exp(yp)
 
-    return yp.round(0)
+    return yp
 
 
 @forecaster
@@ -79,24 +115,24 @@ def holt(y, horiz, **kwargs):
 
     alpha = kwargs.get("alpha", 0.2)
     beta = kwargs.get("beta", 0.2)
-    local_mode = kwargs.get("local_mode", False)
-    use_log = kwargs.get("use_log", False)
+#   local_model = kwargs.get("local_model", False)
+#   use_log = kwargs.get("use_log", False)
 
-    if len(y) == 1:
-        y = np.append(y, 0)
+#   if len(y) == 1:
+#       y = np.append(y, 0)
 
-    if len(y) > 8:
-        y = np.trim_zeros(y, trim ='f')
+#   if len(y) > 8:
+#       y = np.trim_zeros(y, trim ='f')
 
-    if local_mode:
-        y = y[-8:]
+#   if local_model:
+#       y = y[-8:]
 
-    if use_log:
-        y = np.log1p(y)
+#   if use_log:
+#       y = np.log1p(y)
 
     extra_periods = horiz-1
     
-    y = np.log1p(y)
+#   y = np.log1p(y)
 
     # Initialization
     f = [np.nan] # First forecast is set to null value
@@ -123,13 +159,14 @@ def holt(y, horiz, **kwargs):
         # Update the trend as the previous trend
         b.append(b[-1])
 
-    yp = np.clip(np.exp(f[-horiz:]), 0, None).round(0)
+#   yp = np.clip(np.exp(f[-horiz:]), 0, None).round(0)
+    yp = np.array(f[-horiz:])
 
     return yp
 
 
 @forecaster
-def fourier(y, horiz, n_harm=20, **kwargs):
+def fourier(y, horiz, n_harm=15, **kwargs):
     """Generate a forecast using Fourier extrapolation.
 
     Parameters
@@ -143,9 +180,6 @@ def fourier(y, horiz, n_harm=20, **kwargs):
 
     """
 
-    # pad singleton timeseries with a single zero
-    if len(y) == 1:
-        y = np.append(y, 0)
     try:
         n = y.shape[0]
         t = np.arange(n)
@@ -172,32 +206,31 @@ def fourier(y, horiz, n_harm=20, **kwargs):
         traceback.print_exc()
         yp = np.zeros(horiz)
 
-    return yp.clip(0).round(0)
+    return yp
 
 
 @forecaster
 def naive(y, horiz, **kwargs):
     """
     """
-    y = np.nan_to_num(y.clip(0))
-    y = preprocess(y, **kwargs)
+    #y = preprocess(y, **kwargs)
     yp = np.clip(y.mean() * np.ones(horiz), 0, None).round(0)
 
     return yp
 
 
 @forecaster
-def linear_trend(y, horiz, **kwargs):
-    """Generate a forecast using a linear model.
+def trend(y, horiz, **kwargs):
+    """Generate a forecast using a linear trend model.
 
     Parameters
     ----------
     y : array_like
-    cfg : dict
+    horiz : int
 
     Returns
     -------
-    yp : array_like
+    yp : np.array
 
     """
 
@@ -206,81 +239,58 @@ def linear_trend(y, horiz, **kwargs):
         corresponding forecast.
 
         """
+
         x = np.arange(y.size)
-        mu = np.mean(y)
+        mu = np.nanmean(y)
         y = y / mu
         theta = np.polyfit(x, y, 1)
         f = np.poly1d(theta)
-        x1 = np.arange(y.size, y.size + horiz)
+        x1 = np.arange(len(y), len(y) + horiz)
         yp = f(x1) * mu
 
         return yp
 
-    use_log = kwargs.get("use_log", False)
-
-    # pad singleton timeseries with a single zero
-    if len(y) == 1:
-        y = np.append(y, 0)
-
+    '''
     try:
-        if use_log and np.sum(y) > 20:
-            if np.sum(y) > 20:
-                # log-transform the historical demand
-                yp = np.exp(yp_linear(np.log1p(y), horiz))
-            else:
-                yp = np.nan_to_num(y).mean() * np.ones(horiz)
-        elif np.sum(y) > 0:
+        if y.sum() > 0:
             yp = yp_linear(y, horiz)
         else:
-            yp = np.nan_to_num(y).mean() * np.ones(horiz)
+            yp = y.mean() * np.ones(horiz)
     except:
         traceback.print_exc()
         yp = np.zeros(horiz)
+    '''
 
-    return np.clip(yp, 0, None).round(0)
+    if y.sum() > 0:
+        yp = yp_linear(y, horiz)
+    else:
+        yp = y.mean() * np.ones(horiz)
+
+    return yp
 
 
 @forecaster
-def forecast_arima(y, horiz, q=1, d=0, p=1, trim_zeros=True,
-    local_model=False, use_log=False):
+def arima(y, horiz, q=1, d=0, p=1, **kwargs):
     """
     """
-    import traceback 
-
-    def preprocess_y2(y, local_model=False, trim_zeros=True):
-        """
-        """
-        if len(y) > 8 and trim_zeros:
-            y = np.trim_zeros(y, trim="f")
-
-        if local_model:
-            y = y[-8:]
-
-        return y
-    
-    y = preprocess_y2(y, local_model, trim_zeros) 
 
     try:
         extra_periods=horiz-1
-        
-        if use_log:
-            y = np.log(y+1)
-            m = ARIMA(q, d, p)
-            pred = m.fit_predict(y)
-            pred = m.forecast(y, horiz)
-            yp = np.exp(pred[-horiz:]).round(0)
-        else:
-            m = ARIMA(q, d, p)
-            pred = m.fit_predict(y)
-            pred = m.forecast(y, horiz)
-            yp = np.round(pred[-horiz:],0)
+#       
+#       if use_log:
+#           y = np.log(y+1)
+#           m = ARIMA(q, d, p)
+#           pred = m.fit_predict(y)
+#           pred = m.forecast(y, horiz)
+#           yp = np.exp(pred[-horiz:]).round(0)
+#       else:
+        m = ARIMA(q, d, p)
+        pred = m.fit_predict(y)
+        pred = m.forecast(y, horiz)
+        yp = np.round(pred[-horiz:],0)
     except:
         traceback.print_exc()
         yp = np.zeros(horiz)
-
-    yp = np.clip(yp, 0, None).round(0)
-
-    assert(len(yp) == horiz)
 
     return yp
 
@@ -547,30 +557,6 @@ def summarize(df, freq):
     return df_sku_summary
 
 
-def append_sfactor(df, cat_cols=("family",)):
-    """
-    """
-    cat_cols = list(cat_cols)
-    nrows = len(df)
-
-    # calc. the sums over each category for each timestemp
-    df_sums = df.groupby(cat_cols + [df.index], sort=False) \
-                .agg({"demand": _sum}) \
-                .rename({"demand": "cat_sum"}, axis=1) \
-                .sort_index()
-
-    # calc. the seasonal factor at each timestemp for each item
-    df = df.set_index(cat_cols, append=True) \
-           .join(df_sums, how="left")
-    df["sfactor"] = (df["demand"] / df["cat_sum"]).round(4)
-    df.drop("cat_sum", axis=1, inplace=True)
-    df.reset_index(cat_cols, inplace=True)
-
-    assert(len(df) == nrows)
-
-    return df
-
-
 #
 # Experiments
 #
@@ -584,17 +570,142 @@ def create_model_grid():
     """
     grid = [
         ("naive", partial(naive)),
-        ("naive|local|seasonality", partial(naive, local_mode=True, seasonality=True)),
-        ("naive|local", partial(naive, local_mode=True)),
-        ("exp_smooth", partial(exp_smooth)),
+        ("naive|local", partial(naive, local_model=True)),
+        ("naive|seasonal", partial(naive, seasonal=True)),
+        ("naive|local|seasonal",
+            partial(naive, local_model=True, seasonal=True)),
 
-        # fourier forecasts
-        ("fourier|n_harm=25", partial(fourier, n_harm=25))]
+        ("trend", partial(trend)),
+        ("trend|local", partial(trend, local_model=True)),
+        ("trend|seasonal", partial(trend, seasonal=True)),
+        ("trend|local|seasonal",
+            partial(trend, local_model=True, seasonal=True)),
+
+        ("exsmooth|alpha=0.2", partial(exsmooth, alpha=0.2)),
+        ("exsmooth|seasonal|alpha=0.2",
+            partial(exsmooth, alpha=0.2, seasonal=True)),
+        ("exsmooth|local|alpha=0.2",
+            partial(exsmooth, alpha=0.2, local_model=True)),
+        ("exsmooth|local|seasonal|alpha=0.2",
+            partial(exsmooth, alpha=0.2, local_model=True, seasonal=True)),
+
+        ("exsmooth|alpha=0.4", partial(exsmooth, alpha=0.4)),
+        ("exsmooth|seasonal|alpha=0.4",
+            partial(exsmooth, alpha=0.4, seasonal=True)),
+        ("exsmooth|local|alpha=0.4",
+            partial(exsmooth, alpha=0.4, local_model=True)),
+        ("exsmooth|local|seasonal|alpha=0.4",
+            partial(exsmooth, alpha=0.4, local_model=True, seasonal=True)),
+
+        ("exsmooth|alpha=0.6", partial(exsmooth, alpha=0.6)),
+        ("exsmooth|seasonal|alpha=0.6",
+            partial(exsmooth, alpha=0.6, seasonal=True)),
+        ("exsmooth|local|alpha=0.6",
+            partial(exsmooth, alpha=0.6, local_model=True)),
+        ("exsmooth|local|seasonal|alpha=0.6",
+            partial(exsmooth, alpha=0.6, local_model=True, seasonal=True)),
+
+        ("exsmooth|alpha=0.8", partial(exsmooth, alpha=0.8)),
+        ("exsmooth|seasonal|alpha=0.8",
+            partial(exsmooth, alpha=0.8, seasonal=True)),
+        ("exsmooth|local|alpha=0.8",
+            partial(exsmooth, alpha=0.8, local_model=True)),
+        ("exsmooth|local|seasonal|alpha=0.8",
+            partial(exsmooth, alpha=0.8, local_model=True, seasonal=True)),
+
+        ("exsmooth|alpha=0.9", partial(exsmooth, alpha=0.9)),
+        ("exsmooth|seasonal|alpha=0.9",
+            partial(exsmooth, alpha=0.9, seasonal=True)),
+        ("exsmooth|local|alpha=0.9",
+            partial(exsmooth, alpha=0.9, local_model=True)),
+        ("exsmooth|local|seasonal|alpha=0.9",
+            partial(exsmooth, alpha=0.9, local_model=True, seasonal=True)),
+
+        ("holt|alpha=0.2|beta=0.2", partial(holt, alpha=0.2, beta=0.2)),
+        ("holt|seasonal|alpha=0.2|beta=0.2",
+            partial(holt, alpha=0.2, beta=0.2, seasonal=True)),
+        ("holt|local|alpha=0.2|beta=0.2",
+            partial(holt, alpha=0.2, beta=0.2, local_model=True)),
+        ("holt|local|seasonal|alpha=0.2|beta=0.2",
+            partial(holt, alpha=0.2, beta=0.2, local_model=True, seasonal=True)),
+
+        ("holt|alpha=0.4|beta=0.2", partial(holt, alpha=0.4, beta=0.2)),
+        ("holt|seasonal|alpha=0.4|beta=0.2",
+            partial(holt, alpha=0.4, beta=0.2, seasonal=True)),
+        ("holt|local|alpha=0.4|beta=0.2",
+            partial(holt, alpha=0.4, beta=0.2, local_model=True)),
+        ("holt|local|seasonal|alpha=0.4|beta=0.2",
+            partial(holt, alpha=0.4, beta=0.2, local_model=True, seasonal=True)),
+
+        ("holt|alpha=0.6|beta=0.2", partial(holt, alpha=0.6, beta=0.2)),
+        ("holt|seasonal|alpha=0.6|beta=0.2",
+            partial(holt, alpha=0.6, beta=0.2, seasonal=True)),
+        ("holt|local|alpha=0.6|beta=0.2",
+            partial(holt, alpha=0.6, beta=0.2, local_model=True)),
+        ("holt|local|seasonal|alpha=0.6|beta=0.2",
+            partial(holt, alpha=0.6, beta=0.2, local_model=True, seasonal=True)),
+
+        ("holt|alpha=0.2|beta=0.5",
+            partial(holt, alpha=0.2, beta=0.5)),
+        ("holt|seasonal|alpha=0.2|beta=0.5",
+            partial(holt, alpha=0.2, beta=0.5, seasonal=True)),
+        ("holt|local|alpha=0.2|beta=0.5",
+            partial(holt, alpha=0.2, beta=0.5, local_model=True)),
+        ("holt|local|seasonal|alpha=0.2|beta=0.5",
+            partial(holt, alpha=0.2, beta=0.5, local_model=True, seasonal=True)),
+
+        ("holt|alpha=0.4|beta=0.5", partial(holt, alpha=0.4, beta=0.5)),
+        ("holt|seasonal|alpha=0.4|beta=0.5",
+            partial(holt, alpha=0.4, beta=0.5, seasonal=True)),
+        ("holt|local|alpha=0.4|beta=0.5",
+            partial(holt, alpha=0.4, beta=0.5, local_model=True)),
+        ("holt|local|seasonal|alpha=0.4|beta=0.5",
+            partial(holt, alpha=0.4, beta=0.5, local_model=True, seasonal=True)),
+
+        ("holt|alpha=0.6|beta=0.5", partial(holt, alpha=0.6, beta=0.5)),
+        ("holt|seasonal|alpha=0.6|beta=0.5",
+            partial(holt, alpha=0.6, beta=0.5, seasonal=True)),
+        ("holt|local|alpha=0.6|beta=0.5",
+            partial(holt, alpha=0.6, beta=0.5, local_model=True)),
+        ("holt|local|seasonal|alpha=0.6|beta=0.5",
+            partial(holt, alpha=0.6, beta=0.5, local_model=True, seasonal=True)),
+
+        ("holt|alpha=0.8|beta=0.5", partial(holt, alpha=0.8, beta=0.5)),
+        ("holt|seasonal|alpha=0.8|beta=0.5",
+            partial(holt, alpha=0.8, beta=0.5, seasonal=True)),
+        ("holt|local|alpha=0.8|beta=0.5",
+            partial(holt, alpha=0.8, beta=0.5, local_model=True)),
+        ("holt|local|seasonal|alpha=0.8|beta=0.5",
+            partial(holt, alpha=0.8, beta=0.5, local_model=True, seasonal=True)),
+
+        ("arima|001", partial(arima, q=0, d=0, p=1)),
+        ("arima|001|local", partial(arima, q=0, d=0, p=1, local_model=True)),
+        ("arima|001|seasonal", partial(arima, q=0, d=0, p=1, seasonal=True)),
+        ("arima|001|seasonal|local", partial(arima, q=0, d=0, p=1,
+            local_model=True, seasonal=True)),
+
+        ("arima|101", partial(arima, q=1, d=0, p=1)),
+        ("arima|101|local", partial(arima, q=1, d=0, p=1, local_model=True)),
+        ("arima|101|seasonal", partial(arima, q=1, d=0, p=1, seasonal=True)),
+        ("arima|101|seasonal|local", partial(arima, q=1, d=0, p=1,
+            local_model=True, seasonal=True)),
+
+        ("arima|201", partial(arima, q=2, d=0, p=1)),
+        ("arima|201|local", partial(arima, q=2, d=0, p=1, local_model=True)),
+        ("arima|201|seasonal", partial(arima, q=2, d=0, p=1, seasonal=True)),
+        ("arima|201|seasonal|local", partial(arima, q=2, d=0, p=1,
+            local_model=True, seasonal=True)),
+
+        ("fourier", partial(fourier)),
+        ("fourier|local", partial(fourier, local_model=True)),
+        ("fourier|seasonal", partial(fourier, seasonal=True)),
+        ("fourier|seasonal|local", partial(fourier, local_model=True, seasonal=True)),
+    ]
 
     return grid
 
 
-def run_cv(func, y, horiz, step=1, **kwargs):
+def run_cv(func, y, horiz, freq, step=1):
     """Run a sliding-window temporal cross-validation (aka backtest) using a 
     given forecasting function (`func`).
     
@@ -602,7 +713,7 @@ def run_cv(func, y, horiz, step=1, **kwargs):
     
     # allow only 1D time-series arrays
     assert(y.ndim == 1)
-    
+
     #
     # |  y     |  horiz  |..............|
     # |  y      |  horiz  |.............|
@@ -611,14 +722,14 @@ def run_cv(func, y, horiz, step=1, **kwargs):
     #   ::
     # |  y                    | horiz   |
     # 
+    Ycv = []
+    for i in range(1, len(y)-horiz+1, step):
+        yp = func(y[:i], horiz, freq)
+        Ycv.append(yp)
 
-    # replace nan values with zeros
-    y = np.nan_to_num(y)
-    ixs = range(1, len(y)-horiz+1, step)
+    Ycv = np.vstack(Ycv)
 
-    yp = np.vstack([func(y=y[:i], horiz=horiz) for i in ixs])
-
-    return yp
+    return Ycv
 
 
 def run_cv_select(df, horiz, freq, obj_metric="smape_mean", show_progress=False):
@@ -631,7 +742,6 @@ def run_cv_select(df, horiz, freq, obj_metric="smape_mean", show_progress=False)
     item_id = df.iloc[0]["item_id"]
 
     y = df["demand"].values
-    y_sfactors = df["sfactor"].values
 
     assert len(y) > 0
     assert y.ndim == 1
@@ -649,35 +759,39 @@ def run_cv_select(df, horiz, freq, obj_metric="smape_mean", show_progress=False)
     else:
         iter_grid = iter(model_grid)
 
+    # the cross-val horizon length may shrink depending on the length of
+    # historical data
+    cv_horiz = horiz
+
     # shrink the horizon if it is >= the timeseries
-    if horiz >= len(y):
-        horiz = len(y) - 1
+    if cv_horiz >= len(y):
+        cv_horiz = len(y) - 1
 
     # sliding window horizon actuals
-    Y = sliding_window_view(y[1:], horiz)
+    Y = sliding_window_view(y[1:], cv_horiz)
 
-    Yps = []
+    cv_results= []
 
     for model_name, func in iter_grid:
-        Yp = run_cv(func, y, horiz)
+        Ycv = run_cv(func, y, cv_horiz, freq)
 
-        assert not np.any(np.isnan(Yp))
-        assert(Yp.shape == Y.shape)
+        assert not np.any(np.isnan(Ycv))
+        assert Ycv.shape == Y.shape, f"{Ycv.shape} != {Y.shape}"
 
         # generate the final forecast
-        yhat = func(y, horiz)
+        yhat = func(y, horiz, freq)
 
         assert not np.any(np.isnan(yhat))
         assert(len(yhat) == horiz)
 
-        Yps.append((model_name, Yp, yhat))
+        cv_results.append((model_name, Ycv, yhat))
 
     # calculate the errors for each model configuration
     err_delayed = [("smape", calc_smape)]
     results_rows = []
 
-    for model_name, Yp, yhat in Yps:
-        results = {name: func(Y, Yp) for name, func in err_delayed}
+    for model_name, Ycv, yhat in cv_results:
+        results = {name: func(Y, Ycv) for name, func in err_delayed}
 
         # keep the final forecast for the model
         results["yhat"] = yhat
@@ -687,13 +801,16 @@ def run_cv_select(df, horiz, freq, obj_metric="smape_mean", show_progress=False)
     df_results = pd.DataFrame(results_rows)
 
     # calc. metric stats
+    metric_aggs = [
+        ("mean", np.nanmean),
+        ("median", np.nanmedian),
+        ("std", np.nanstd)
+    ]
+
     for metric, _ in err_delayed:
-        df_results[f"{metric}_mean"] = \
-            df_results[metric].apply(np.nanmean).round(4)
-        df_results[f"{metric}_median"] = \
-            df_results[metric].apply(np.nanmedian).round(4)
-        df_results[f"{metric}_std"] = \
-            df_results[metric].apply(np.nanstd).round(4)
+        for agg_name, agg in metric_aggs:
+            df_results[f"{metric}_{agg_name}"] = \
+                df_results[metric].apply(agg).round(4)
 
     assert obj_metric in df_results
 
@@ -705,13 +822,9 @@ def run_cv_select(df, horiz, freq, obj_metric="smape_mean", show_progress=False)
     df_results.insert(1, "family", family)
     df_results.insert(2, "item_id", item_id)
 
-    # make the historical dataframe
-    df_hist = df[GROUP_COLS]
-    df_hist["type"] = "actual"
-
     # get the forecast from the best model
     yhat = df_results.iloc[0]["yhat"]
-    yhat_ts = pd.date_range(df_hist.index.max(),
+    yhat_ts = pd.date_range(df.index.max(),
                             periods=len(yhat)+1, freq=freq, closed="right")
 
     assert len(yhat_ts) > 0
@@ -726,8 +839,11 @@ def run_cv_select(df, horiz, freq, obj_metric="smape_mean", show_progress=False)
     df_pred["type"] = "fcast"
     df_pred.set_index("timestamp", drop=False, inplace=True)
 
+    df["type"] = "actual"
+
     # combine historical and predictions dataframes, re-ordering columns
-    df_pred = df_hist.append(df_pred)
+    df_pred = df[GROUP_COLS + ["demand", "type"]] \
+                .append(df_pred)[GROUP_COLS + ["demand", "type"]]
 
     return df_results, df_pred
 
@@ -754,9 +870,6 @@ def run_pipeline(data, horiz, freq_in, freq_out, obj_metric="smape_mean",
 
     # resample the input dataset to the desired frequency.
     df = resample(df, freq_out)
-
-    # add the seasonal factor column (`sfactor`) to each row
-    df = append_sfactor(df, ["family"])
 
     groups = df.groupby(GROUP_COLS, as_index=False, sort=False)
     job_count = groups.ngroups
@@ -792,8 +905,8 @@ def calc_smape(y, yp, axis=0):
     """
 
     try:
-        smape = np.nansum(np.abs(y - yp), axis=axis) / \
-                    np.nansum(y + yp, axis=axis)
+        smape = np.divide(np.nansum(np.abs(y - yp), axis=axis),
+                          np.nansum(y + yp, axis=axis))
     except ZeroDivisionError:
         smape = 0.0
         
@@ -923,7 +1036,6 @@ def resample(df, freq):
 #
 # Utilities
 #
-
 def validate(df):
     """Validate the timeseries dataframe
 
@@ -947,7 +1059,7 @@ def validate(df):
     return msgs, is_valid_file
 
 
-def preprocess(y, local_mode=False, use_log=False , trim_zeros=False, **kwargs):
+def preprocess(y, local_model=False, use_log=False , trim_zeros=False, **kwargs):
     """
     """
 
