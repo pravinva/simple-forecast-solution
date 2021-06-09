@@ -732,7 +732,8 @@ def run_cv(func, y, horiz, freq, step=1):
     return Ycv
 
 
-def run_cv_select(df, horiz, freq, obj_metric="smape_mean", show_progress=False):
+def run_cv_select(df, horiz, freq, obj_metric="smape_mean", cv_step=1,
+    show_progress=False):
     """Run the timeseries cross-val model selection across the forecasting
     functions for a single timeseries (`y`) and horizon length (`horiz`).
 
@@ -768,12 +769,12 @@ def run_cv_select(df, horiz, freq, obj_metric="smape_mean", show_progress=False)
         cv_horiz = len(y) - 1
 
     # sliding window horizon actuals
-    Y = sliding_window_view(y[1:], cv_horiz)
+    Y = sliding_window_view(y[1:], cv_horiz, )[::cv_step,:]
 
     cv_results= []
 
     for model_name, func in iter_grid:
-        Ycv = run_cv(func, y, cv_horiz, freq)
+        Ycv = run_cv(func, y, cv_horiz, freq, step=cv_step)
 
         assert not np.any(np.isnan(Ycv))
         assert Ycv.shape == Y.shape, f"{Ycv.shape} != {Y.shape}"
@@ -849,7 +850,7 @@ def run_cv_select(df, horiz, freq, obj_metric="smape_mean", show_progress=False)
 
 
 def run_pipeline(data, horiz, freq_in, freq_out, obj_metric="smape_mean",
-    backend="python"):
+    cv_step=1, backend="python"):
     """Run model selection over *all* timeseries in a dataframe. Note that
     this is a generator and will yield one results dataframe per timeseries at
     a single iteration.
@@ -876,7 +877,8 @@ def run_pipeline(data, horiz, freq_in, freq_out, obj_metric="smape_mean",
 
     if backend == "python":
         for _, dd in groups:
-            df_results, df_pred = run_cv_select(dd, horiz, freq_out, obj_metric)
+            df_results, df_pred = \
+                run_cv_select(dd, horiz, freq_out, obj_metric, cv_step=cv_step)
             yield df_results, df_pred
     elif backend == "multiprocessing":
         raise NotImplementedError
