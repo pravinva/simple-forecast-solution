@@ -547,6 +547,18 @@ def summarize(df, freq):
     return df_sku_summary
 
 
+def calc_sfactors(df, cat_col="family"):
+    """Calculate the seasonal factors across each cat for each timestep.
+
+    """
+
+    df_sfactors = df.groupby([df.index, cat_col], sort=False) \
+                    .agg({"demand": sum}) \
+                    .reset_index(cat_col)
+
+    return df_sfactors
+
+
 #
 # Experiments
 #
@@ -560,6 +572,7 @@ def create_model_grid():
     """
     grid = [
         ("naive", partial(naive)),
+        ("naive|local|seasonality", partial(naive, local_mode=True, seasonality=True)),
         ("naive|local", partial(naive, local_mode=True)),
         ("exp_smooth", partial(exp_smooth)),
 
@@ -685,11 +698,15 @@ def run_pipeline(data, horiz, freq_in, freq_out, obj_metric="smape_mean"):
     # resample the input dataset to the desired frequency.
     df = resample(df, freq_out)
 
+    # calc. seasonal factors
+    df_sfactors = calc_sfactors(df)
+
     for key, df_grp in df.groupby(GROUP_COLS, as_index=False, sort=False):
         y = df_grp["demand"].values
 
         # generate forecast results for a single timeseries
         df_results = run_cv_select(y, horiz, obj_metric)
+
         df_results.insert(0, "channel", key[0])
         df_results.insert(1, "family", key[1])
         df_results.insert(2, "item_id", key[2])
@@ -708,6 +725,7 @@ def run_pipeline(data, horiz, freq_in, freq_out, obj_metric="smape_mean"):
 
         # make the forecast dataframe
         df_pred = pd.DataFrame({"demand": yhat, "timestamp": yhat_ts})
+
         df_pred.insert(0, "channel", key[0])
         df_pred.insert(1, "family", key[1])
         df_pred.insert(2, "item_id", key[2])
@@ -763,7 +781,7 @@ def load_data(data, impute_freq=None):
 
     Returns
     -------
-    pd.DataFrame
+    Dataset
 
     """
 
@@ -793,7 +811,7 @@ def load_data(data, impute_freq=None):
     if impute_freq is not None:
         df = impute_dates(df, impute_freq)
 
-    return df
+    return Dataset(df)
 
 
 def impute_dates(df, freq, dt_stop=None):

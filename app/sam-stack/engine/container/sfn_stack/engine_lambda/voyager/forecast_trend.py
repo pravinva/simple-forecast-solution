@@ -267,4 +267,3 @@ def forecast_trend2(xs, horiz, use_log=False):
         yp = np.zeros(horiz)
 
     return np.clip(yp, 0, None).round(0)
-
