@@ -758,29 +758,6 @@ def load_data(data, impute_freq=None):
     return df
 
 
-def resample(df, freq):
-    """Resample a dataframe to a new frequency. Note that if a period in the
-    new frequency contains only nulls, then the resulting resampled sum is NaN.
-
-    Parameters
-    ----------
-    df : pd.DataFrame
-    freq : str
-
-    """
-    def _sum(y):
-        if np.all(pd.isnull(y)):
-            return np.nan
-        return np.nansum(y)
-
-    df = df.groupby(GROUP_COLS, sort=False) \
-           .resample(freq) \
-           .agg({"demand": _sum}) \
-           .reset_index(level=[0,1,2])
-
-    return df
-
-
 def impute_dates(df, freq, dt_stop=None):
     """Fill missing dates in the timeseries dataframe.
 
@@ -826,6 +803,30 @@ def impute_dates(df, freq, dt_stop=None):
     df.index = df.index.droplevel(0)
 
     return df
+
+
+def resample(df, freq):
+    """Resample a dataframe to a new frequency. Note that if a period in the
+    new frequency contains only nulls, then the resulting resampled sum is NaN.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+    freq : str
+
+    """
+    def _sum(y):
+        if np.all(pd.isnull(y)):
+            return np.nan
+        return np.nansum(y)
+
+    df = df.groupby(GROUP_COLS, sort=False) \
+           .resample(freq) \
+           .agg({"demand": _sum}) \
+           .reset_index(level=[0,1,2])
+
+    return df
+
 
 #
 # Utilities
