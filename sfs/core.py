@@ -547,16 +547,28 @@ def summarize(df, freq):
     return df_sku_summary
 
 
-def calc_sfactors(df, cat_col="family"):
-    """Calculate the seasonal factors across each cat for each timestep.
-
+def append_sfactor(df, cat_cols=("family",)):
     """
+    """
+    cat_cols = list(cat_cols)
+    nrows = len(df)
 
-    df_sfactors = df.groupby([df.index, cat_col], sort=False) \
-                    .agg({"demand": sum}) \
-                    .reset_index(cat_col)
+    # calc. the sums over each category for each timestemp
+    df_sums = df.groupby(cat_cols + [df.index], sort=False) \
+                .agg({"demand": _sum}) \
+                .rename({"demand": "cat_sum"}, axis=1) \
+                .sort_index()
 
-    return df_sfactors
+    # calc. the seasonal factor at each timestemp for each item
+    df = df.set_index(cat_cols, append=True) \
+           .join(df_sums, how="left")
+    df["sfactor"] = (df["demand"] / df["cat_sum"]).round(4)
+    df.drop("cat_sum", axis=1, inplace=True)
+    df.reset_index(cat_cols, inplace=True)
+
+    assert(len(df) == nrows)
+
+    return df
 
 
 #
@@ -609,11 +621,17 @@ def run_cv(func, y, horiz, step=1, **kwargs):
     return yp
 
 
-def run_cv_select(y, horiz, obj_metric="smape_mean", show_progress=False):
+def run_cv_select(df, horiz, freq, obj_metric="smape_mean", show_progress=False):
     """Run the timeseries cross-val model selection across the forecasting
     functions for a single timeseries (`y`) and horizon length (`horiz`).
 
     """
+    channel = df.iloc[0]["channel"]
+    family = df.iloc[0]["family"]
+    item_id = df.iloc[0]["item_id"]
+
+    y = df["demand"].values
+    y_sfactors = df["sfactor"].values
 
     assert len(y) > 0
     assert y.ndim == 1
@@ -683,7 +701,35 @@ def run_cv_select(y, horiz, obj_metric="smape_mean", show_progress=False):
     df_results.sort_values(by=obj_metric, ascending=True, inplace=True)
     df_results["rank"] = np.arange(len(df_results)) + 1
 
-    return df_results
+    df_results.insert(0, "channel", channel)
+    df_results.insert(1, "family", family)
+    df_results.insert(2, "item_id", item_id)
+
+    # make the historical dataframe
+    df_hist = df[GROUP_COLS]
+    df_hist["type"] = "actual"
+
+    # get the forecast from the best model
+    yhat = df_results.iloc[0]["yhat"]
+    yhat_ts = pd.date_range(df_hist.index.max(),
+                            periods=len(yhat)+1, freq=freq, closed="right")
+
+    assert len(yhat_ts) > 0
+    assert len(yhat_ts) == len(yhat)
+
+    # make the forecast dataframe
+    df_pred = pd.DataFrame({"demand": yhat, "timestamp": yhat_ts})
+
+    df_pred.insert(0, "channel", channel)
+    df_pred.insert(1, "family", family)
+    df_pred.insert(2, "item_id", item_id)
+    df_pred["type"] = "fcast"
+    df_pred.set_index("timestamp", drop=False, inplace=True)
+
+    # combine historical and predictions dataframes, re-ordering columns
+    df_pred = df_hist.append(df_pred)
+
+    return df_results, df_pred
 
 
 def run_pipeline(data, horiz, freq_in, freq_out, obj_metric="smape_mean"):
@@ -698,43 +744,13 @@ def run_pipeline(data, horiz, freq_in, freq_out, obj_metric="smape_mean"):
     # resample the input dataset to the desired frequency.
     df = resample(df, freq_out)
 
-    # calc. seasonal factors
-    df_sfactors = calc_sfactors(df)
+    # add the seasonal factor column (`sfactor`) to each row
+    df = append_sfactor(df, ["family"])
 
-    for key, df_grp in df.groupby(GROUP_COLS, as_index=False, sort=False):
-        y = df_grp["demand"].values
+    groups = df.groupby(GROUP_COLS, as_index=False, sort=False)
 
-        # generate forecast results for a single timeseries
-        df_results = run_cv_select(y, horiz, obj_metric)
-
-        df_results.insert(0, "channel", key[0])
-        df_results.insert(1, "family", key[1])
-        df_results.insert(2, "item_id", key[2])
-
-        # make the historical dataframe
-        df_hist = df_grp[GROUP_COLS]
-        df_hist["type"] = "actual"
-
-        # get the forecast from the best model
-        yhat = df_results.iloc[0]["yhat"]
-        yhat_ts = pd.date_range(df_hist.index.max(),
-                                periods=len(yhat)+1, freq=freq_out, closed="right")
-
-        assert len(yhat_ts) > 0
-        assert len(yhat_ts) == len(yhat)
-
-        # make the forecast dataframe
-        df_pred = pd.DataFrame({"demand": yhat, "timestamp": yhat_ts})
-
-        df_pred.insert(0, "channel", key[0])
-        df_pred.insert(1, "family", key[1])
-        df_pred.insert(2, "item_id", key[2])
-        df_pred["type"] = "fcast"
-        df_pred.set_index("timestamp", drop=False, inplace=True)
-
-        # combine historical and predictions dataframes, re-ordering columns
-        df_pred = df_hist.append(df_pred)
-
+    for _, dd in groups:
+        df_results, df_pred = run_cv_select(dd, horiz, freq_out, obj_metric)
         yield df_results, df_pred
 
     return
@@ -811,7 +827,7 @@ def load_data(data, impute_freq=None):
     if impute_freq is not None:
         df = impute_dates(df, impute_freq)
 
-    return Dataset(df)
+    return df
 
 
 def impute_dates(df, freq, dt_stop=None):
@@ -874,10 +890,6 @@ def resample(df, freq):
     freq : str
 
     """
-    def _sum(y):
-        if np.all(pd.isnull(y)):
-            return np.nan
-        return np.nansum(y)
 
     df = df.groupby(GROUP_COLS, sort=False) \
            .resample(freq) \
@@ -914,7 +926,7 @@ def validate(df):
     return msgs, is_valid_file
 
 
-def preprocess(y, local_mode=False, use_log=False , trim_zeros=False):
+def preprocess(y, local_mode=False, use_log=False , trim_zeros=False, **kwargs):
     """
     """
 
@@ -951,3 +963,9 @@ def ts_groups(self, **groupby_kwds):
     groupby_kwds.setdefault("sort", False)
 
     return self.groupby(GROUP_COLS, **groupby_kwds)
+
+
+def _sum(y):
+    if np.all(pd.isnull(y)):
+        return np.nan
+    return np.nansum(y)
