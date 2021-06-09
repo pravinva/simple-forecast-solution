@@ -732,10 +732,21 @@ def run_cv_select(df, horiz, freq, obj_metric="smape_mean", show_progress=False)
     return df_results, df_pred
 
 
-def run_pipeline(data, horiz, freq_in, freq_out, obj_metric="smape_mean"):
-    """Run he CV model selection over *all* timeseries in a dataframe.
-    Note that this is a generator and will yield one results dataframe per
-    timeseries at a single iteration.
+def run_pipeline(data, horiz, freq_in, freq_out, obj_metric="smape_mean",
+    backend="python"):
+    """Run model selection over *all* timeseries in a dataframe. Note that
+    this is a generator and will yield one results dataframe per timeseries at
+    a single iteration.
+
+    Parameters
+    ----------
+    data : str
+    horiz : int
+    freq_in : str
+    freq_out : str
+    obj_metric : str, optional
+    backend : str, optional
+        "python", "multiprocessing", "pyspark", or "lambdamap"
 
     """
 
@@ -748,10 +759,20 @@ def run_pipeline(data, horiz, freq_in, freq_out, obj_metric="smape_mean"):
     df = append_sfactor(df, ["family"])
 
     groups = df.groupby(GROUP_COLS, as_index=False, sort=False)
+    job_count = groups.ngroups
 
-    for _, dd in groups:
-        df_results, df_pred = run_cv_select(dd, horiz, freq_out, obj_metric)
-        yield df_results, df_pred
+    if backend == "python":
+        for _, dd in groups:
+            df_results, df_pred = run_cv_select(dd, horiz, freq_out, obj_metric)
+            yield df_results, df_pred
+    elif backend == "multiprocessing":
+        raise NotImplementedError
+    elif backend == "pyspark":
+        raise NotImplementedError
+    elif backend == "lambdamap":
+        raise NotImplementedError
+    else:
+        raise NotImplementedError
 
     return
 
