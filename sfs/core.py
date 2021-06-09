@@ -732,7 +732,7 @@ def resample(df, freq):
 
 
 def impute_dates(df, freq, dt_stop=None):
-    """
+    """Fill missing dates in the timeseries dataframe.
 
     Parameters
     ----------
@@ -768,7 +768,7 @@ def impute_dates(df, freq, dt_stop=None):
 # Utilities
 #
 def load_data(pth):
-    """Read a raw input dataset from disk, S3, or a dataframe.
+    """Read a raw timeseries dataset from disk, S3, or a dataframe.
 
     """
 
@@ -793,6 +793,7 @@ def load_data(pth):
     # set timeseries dataframe index
     df["timestamp"] = pd.DatetimeIndex(df["timestamp"])
     df.set_index("timestamp", drop=False, inplace=True)
+    df.index.name = None
 
     return df
 
