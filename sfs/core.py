@@ -782,25 +782,25 @@ def impute_dates(df, freq, dt_stop=None):
 #
 # Utilities
 #
-def load_data(pth):
+def load_data(data):
     """Read a raw timeseries dataset from disk, S3, or a dataframe. Note that
     the "timestamp" column will be removed as a bonafide column and set as 
     the dataframe (timeseries) index.
 
     """
 
-    if isinstance(pth, str):
-        if pth.endswith(".csv.gz"):
+    if isinstance(data, str):
+        if data.endswith(".csv.gz"):
             _read_func = partial(pd.read_csv, compression="gzip")
-        elif pth.endswith(".csv"):
+        elif data.endswith(".csv"):
             _read_func = partial(pd.read_csv)
         else:
             raise NotImplementedError
 
         # cast exp. columns to correct types
-        df = _read_func(pth)
-    elif isinstance(pth, pd.DataFrame):
-        df = pth
+        df = _read_func(data)
+    elif isinstance(data, pd.DataFrame):
+        df = data
     else:
         raise NotImplementedError
 
