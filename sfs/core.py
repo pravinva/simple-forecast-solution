@@ -711,7 +711,8 @@ def calc_smape(y, yp, axis=0):
 # Data wrangling
 #
 def resample(df, freq):
-    """Resample a dataframe to a new frequency
+    """Resample a dataframe to a new frequency. Note that if a period in the
+    new frequency contains only nulls, then the resulting resampled sum is NaN.
 
     Parameters
     ----------
@@ -719,14 +720,15 @@ def resample(df, freq):
     freq : str
 
     """
+    def _sum(y):
+        if np.all(pd.isnull(y)):
+            return np.nan
+        return np.nansum(y)
 
-    df = df.groupby([pd.Grouper(key="timestamp", freq=freq)] + GROUP_COLS,
-                    sort=False) \
-           .agg({"demand": sum}) \
-           .reset_index()
-
-    # put the dataframe index back to a timeseries index
-    df.set_index("timestamp", drop=False, inplace=True)
+    df = df.groupby(GROUP_COLS, sort=False) \
+           .resample(freq) \
+           .agg({"demand": _sum}) \
+           .reset_index(level=[0,1,2])
 
     return df
 
@@ -749,18 +751,31 @@ def impute_dates(df, freq, dt_stop=None):
 
     """
 
-    def impute_dates_grp(dd, freq, dt_stop):
-        assert(dd[GROUP_COLS].drop_duplicates().shape[0] == 1)
-        start = dd.index.min()
-        end = dd.index.max() if dt_stop is None else dt_stop
-        new_index = pd.date_range(start, end, freq=freq)
-        dd = dd.reindex(new_index)
-        dd["timestamp"] = dd.index
-        dd.loc[:,GROUP_COLS] = dd.loc[:,GROUP_COLS].ffill()
+    def _impute_dates(dd, freq, dt_stop=None):
+        """
+        """
+
+        if dt_stop is None:
+            dt_stop = dd.index.max()
+
+        # don't shrink timeseries
+        assert(dt_stop >= dd.index.max())
+
+        # assign the new timeseries index
+        dd = dd.reindex(pd.date_range(dd.index.min(), dt_stop, freq=freq))
+
+        # fwd fill only the essential columns
+        dd.loc[:,GROUP_COLS] = dd[GROUP_COLS].ffill()
+
         return dd
 
-    df = df.groupby(GROUP_COLS, as_index=False, sort=False) \
-           .apply(partial(impute_dates_grp, freq=freq, dt_stop=dt_stop))
+    assert isinstance(df.index, pd.DatetimeIndex)
+
+    if "timestamp" in df:
+        df.drop("timestamp", axis=1, inplace=True)
+
+    df = ts_groups(df).apply(partial(_impute_dates, freq=freq, dt_stop=dt_stop))
+    df.index = df.index.droplevel(0)
 
     return df
 
@@ -768,7 +783,9 @@ def impute_dates(df, freq, dt_stop=None):
 # Utilities
 #
 def load_data(pth):
-    """Read a raw timeseries dataset from disk, S3, or a dataframe.
+    """Read a raw timeseries dataset from disk, S3, or a dataframe. Note that
+    the "timestamp" column will be removed as a bonafide column and set as 
+    the dataframe (timeseries) index.
 
     """
 
@@ -787,13 +804,12 @@ def load_data(pth):
     else:
         raise NotImplementedError
 
+    # enforce column datatypes
     df = df.astype({"channel": str, "family": str, "item_id": str,
                     "demand": float})
 
     # set timeseries dataframe index
-    df["timestamp"] = pd.DatetimeIndex(df["timestamp"])
-    df.set_index("timestamp", drop=False, inplace=True)
-    df.index.name = None
+    df.set_index(pd.DatetimeIndex(df.pop("timestamp")), inplace=True)
 
     return df
 
