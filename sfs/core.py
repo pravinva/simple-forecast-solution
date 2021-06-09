@@ -783,6 +783,8 @@ def impute_dates(df, freq, dt_stop=None):
         if dt_stop is None:
             dt_stop = dd.index.max()
 
+        dt_stop = pd.Timestamp(dt_stop)
+
         # don't shrink timeseries
         assert(dt_stop >= dd.index.max())
 
