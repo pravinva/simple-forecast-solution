@@ -21,6 +21,19 @@ TAIL_LEN = {"D": 56, "W": 8, "M": 2}
 #
 # Forecast functions
 #
+def forecaster(func):
+    """Forecast function decorator. Apply this to any forecasting function and
+    it will handle any compulsory pre- and post-processing of arguments and
+    return values.
+
+    """
+    def do_forecast(y, *args, **kwargs):
+        # ensure the input values are not null
+        return func(np.nan_to_num(y), *args, **kwargs)
+    return do_forecast
+
+
+@forecaster
 def exp_smooth(y, horiz, **kwargs):
     """
     """
@@ -59,6 +72,7 @@ def exp_smooth(y, horiz, **kwargs):
     return yp.round(0)
 
 
+@forecaster
 def holt(y, horiz, **kwargs):
     """
     """
@@ -114,6 +128,7 @@ def holt(y, horiz, **kwargs):
     return yp
 
 
+@forecaster
 def fourier(y, horiz, n_harm=20, **kwargs):
     """Generate a forecast using Fourier extrapolation.
 
@@ -131,7 +146,6 @@ def fourier(y, horiz, n_harm=20, **kwargs):
     # pad singleton timeseries with a single zero
     if len(y) == 1:
         y = np.append(y, 0)
-
     try:
         n = y.shape[0]
         t = np.arange(n)
@@ -161,6 +175,7 @@ def fourier(y, horiz, n_harm=20, **kwargs):
     return yp.clip(0).round(0)
 
 
+@forecaster
 def naive(y, horiz, **kwargs):
     """
     """
@@ -171,6 +186,7 @@ def naive(y, horiz, **kwargs):
     return yp
 
 
+@forecaster
 def linear_trend(y, horiz, **kwargs):
     """Generate a forecast using a linear model.
 
@@ -224,6 +240,7 @@ def linear_trend(y, horiz, **kwargs):
     return np.clip(yp, 0, None).round(0)
 
 
+@forecaster
 def forecast_arima(y, horiz, q=1, d=0, p=1, trim_zeros=True,
     local_model=False, use_log=False):
     """
@@ -569,9 +586,13 @@ def run_cv(func, y, horiz, step=1, **kwargs):
     #   ::
     # |  y                    | horiz   |
     # 
+
+    # replace nan values with zeros
+    y = np.nan_to_num(y)
     ixs = range(1, len(y)-horiz+1, step)
+
     yp = np.vstack([func(y=y[:i], horiz=horiz) for i in ixs])
-    
+
     return yp
 
 
@@ -608,10 +629,14 @@ def run_cv_select(y, horiz, obj_metric="smape_mean", show_progress=False):
 
     for model_name, func in iter_grid:
         Yp = run_cv(func, y, horiz)
+
+        assert not np.any(np.isnan(Yp))
         assert(Yp.shape == Y.shape)
 
         # generate the final forecast
         yhat = func(y, horiz)
+
+        assert not np.any(np.isnan(yhat))
         assert(len(yhat) == horiz)
 
         Yps.append((model_name, Yp, yhat))
@@ -670,13 +695,13 @@ def run_pipeline(data, horiz, freq_in, freq_out, obj_metric="smape_mean"):
         df_results.insert(2, "item_id", key[2])
 
         # make the historical dataframe
-        df_hist = df_grp[EXP_COLS]
+        df_hist = df_grp[GROUP_COLS]
         df_hist["type"] = "actual"
 
         # get the forecast from the best model
         yhat = df_results.iloc[0]["yhat"]
-        yhat_ts = pd.date_range(df_hist["timestamp"].max(),
-                                periods=len(yhat)+1, freq=freq, closed="right")
+        yhat_ts = pd.date_range(df_hist.index.max(),
+                                periods=len(yhat)+1, freq=freq_out, closed="right")
 
         assert len(yhat_ts) > 0
         assert len(yhat_ts) == len(yhat)
@@ -710,7 +735,7 @@ def calc_smape(y, yp, axis=0):
     where, 0.0 <= sMAPE <= 1.0 (lower is better)
     
     """
-    
+
     try:
         smape = np.nansum(np.abs(y - yp), axis=axis) / \
                     np.nansum(y + yp, axis=axis)
