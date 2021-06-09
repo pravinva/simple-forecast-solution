@@ -533,6 +533,25 @@ def summarize(df, freq):
 #
 # Experiments
 #
+def create_model_grid():
+    """Make the "grid" of model configurations to explore.
+
+    Returns
+    -------
+    list
+
+    """
+    grid = [
+        ("naive", partial(naive)),
+        ("naive|local", partial(naive, local_mode=True)),
+        ("exp_smooth", partial(exp_smooth)),
+
+        # fourier forecasts
+        ("fourier|n_harm=25", partial(fourier, n_harm=25))]
+
+    return
+
+
 def run_cv(func, y, horiz, step=1, **kwargs):
     """Run a sliding-window temporal cross-validation (aka backtest) using a 
     given forecasting function (`func`).
@@ -571,18 +590,12 @@ def run_cv_select(y, horiz, obj_metric="smape_mean", show_progress=False):
         y = np.pad(y, [1,0], constant_values=1)
 
     # these are the model configurations to run
-    func_delayed = [
-        ("naive", partial(naive)),
-        ("naive|local", partial(naive, local_mode=True)),
-        ("exp_smooth", partial(exp_smooth)),
-
-        # fourier forecasts
-        ("fourier|n_harm=25", partial(fourier, n_harm=25))]
+    model_grid = create_model_grid()
 
     if show_progress:
-        func_iter = tqdm(func_delayed)
+        iter_grid = tqdm(model_grid)
     else:
-        func_iter = iter(func_delayed)
+        iter_grid = iter(model_grid)
 
     # shrink the horizon if it is >= the timeseries
     if horiz >= len(y):
@@ -593,7 +606,7 @@ def run_cv_select(y, horiz, obj_metric="smape_mean", show_progress=False):
 
     Yps = []
 
-    for model_name, func in func_iter:
+    for model_name, func in iter_grid:
         Yp = run_cv(func, y, horiz)
         assert(Yp.shape == Y.shape)
 
@@ -608,7 +621,7 @@ def run_cv_select(y, horiz, obj_metric="smape_mean", show_progress=False):
     results_rows = []
 
     for model_name, Yp, yhat in Yps:
-        results = { name : func(Y, Yp) for name, func in err_delayed }
+        results = {name: func(Y, Yp) for name, func in err_delayed}
 
         # keep the final forecast for the model
         results["yhat"] = yhat
