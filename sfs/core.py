@@ -35,9 +35,13 @@ def forecaster(func):
         local_model = kwargs.get("local_model", False)
         seasonal = kwargs.get("seasonal", False)
         trim_zeros = kwargs.get("trim_zeros", False)
+        use_log = kwargs.get("use_log", False)
 
         if trim_zeros:
             y = np.trim_zeros(y, trim="f")
+
+        if use_log:
+            y = np.log1p(y)
 
         # pad singleton timeseries with a single zero
         if len(y) == 1:
@@ -67,7 +71,13 @@ def forecaster(func):
             # ensure the input values are not null
             yp = func(y, horiz, **kwargs)
 
+        # de-normalize from log-scale
+        if use_log:
+            yp = np.exp(yp)
+
         yp = np.nan_to_num(yp).clip(0).round(0)
+
+        assert len(yp) == horiz
 
         return yp
 
@@ -213,7 +223,6 @@ def fourier(y, horiz, n_harm=15, **kwargs):
 def naive(y, horiz, **kwargs):
     """
     """
-    #y = preprocess(y, **kwargs)
     yp = np.clip(y.mean() * np.ones(horiz), 0, None).round(0)
 
     return yp
@@ -469,7 +478,7 @@ class ARIMA(LinearModel):
 #
 # Analysis
 #
-def analyze_dataset(df, freq):
+def make_demand_classification(df, freq):
     """Run analyses on each timeseries, e.g. to determine
     retired/intermittent/continuous timeseries. This needs to be run on a
     non-normalized dataframe (i.e. prior to pre-processing in the pipeline).
@@ -488,9 +497,9 @@ def analyze_dataset(df, freq):
         if r["retired"]:
             if r["life_periods"] < r["len"] / 4.0:
                 return "short"
-            return "med"
+            return "medium"
         else:
-            return "cont"
+            return "continuous"
 
     def _spectral_entropy(y):
         y = y[np.logical_not(np.isnan(y))]
@@ -526,7 +535,72 @@ def analyze_dataset(df, freq):
     return df_analysis
 
 
-def summarize(df, freq):
+def make_perf_summary(df_results):
+    """Generate the dataframe summarizing the overall performance, primarily
+    for use in the UI:
+
+    - distribution of model types that were selected for each timeseries
+    - errors for the selected models
+    - errors for the naive models
+
+    Returns
+    -------
+    pd.DataFrame, pd.Series, pd.Series, float
+
+    """
+    df_best = df_results.query("rank == 1")
+
+    # tabulate distribution of model types selected across the entire dataset
+    df_model_dist = pd.DataFrame({"model_type": df_results["model_type"].unique()}) \
+                      .merge(
+                        df_best["model_type"] \
+                                  .value_counts(normalize=True) \
+                                  .reset_index() \
+                                  .rename({"model_type": "perc",
+                                           "index": "model_type"}, axis=1),
+                        how="left", on="model_type") \
+                      .merge(
+                        df_best["model_type"] \
+                                  .value_counts() \
+                                  .reset_index() \
+                                  .rename({"model_type": "freq",
+                                           "index": "model_type"}, axis=1),
+                        how="left", on="model_type") \
+
+    df_model_dist["perc"] = df_model_dist["perc"].fillna(0.) * 100.
+    df_model_dist["freq"] = df_model_dist["freq"].fillna(0.)
+
+    # get the metrics for the best naive models of each timeseries
+    df_best_naive = \
+        df_results.query("model_type == 'naive' and params == 'naive'") \
+                  .sort_values(by=["rank"]) \
+                  .groupby(GROUP_COLS, as_index=False, sort=False) \
+                  .first()
+
+    naive_err_mean = np.nanmean(np.hstack(df_best_naive["smape"])).round(4)
+    naive_err_median = np.nanmedian(np.hstack(df_best_naive["smape"])).round(4)
+    naive_err_std = np.nanstd(np.hstack(df_best_naive["smape"])).round(4)
+
+    sr_acc_naive = pd.Series({"err_mean": naive_err_mean,
+                              "err_median": naive_err_median,
+                              "err_std": naive_err_std })
+
+    # summarize the metrics and improvement vs. naive
+    err_mean = np.nanmean(np.hstack(df_best["smape"])).round(4)
+    err_median = np.nanmedian(np.hstack(df_best["smape"])).round(4)
+    err_std = np.nanstd(np.hstack(df_best["smape"])).round(4)
+
+    sr_acc = pd.Series({"err_mean": err_mean,
+                        "err_median": err_median,
+                        "err_std": err_std })
+    
+    acc_increase = ((1 - sr_err.err_mean) - 
+                    (1 - sr_err_naive.err_mean)).round(4)
+
+    return df_model_dist, sr_acc, sr_acc_naive, acc_increase
+
+
+def make_health_summary(df, freq):
     """Analyze the timeseries of a dataframe, providing summaries of missing
     dates, min-max values, counts etc.
 
@@ -545,16 +619,12 @@ def summarize(df, freq):
 
     df_grps = df.groupby(GROUP_COLS)
 
-    # get per-sku summary
-    df_sku_summary = \
-        df_grps.agg({"demand": [null_count, nonzero_count, np.nanmean, np.nanmedian],
-                     "timestamp": [min, max, date_count]}) \
-               .rename({"null_count": "missing_dates"}, axis=1)
+    df_summary = \
+        df.groupby(GROUP_COLS) \
+          .agg({"demand": [null_count, nonzero_count, np.nanmean, np.nanmedian]}) \
+          .rename({"null_count": "missing_dates"}, axis=1)
 
-    # get overall summary
-    # - most comm
-
-    return df_sku_summary
+    return df_summary
 
 
 #
@@ -575,11 +645,23 @@ def create_model_grid():
         ("naive|local|seasonal",
             partial(naive, local_model=True, seasonal=True)),
 
+        ("naive|log", partial(naive, use_log=True)),
+        ("naive|log|local", partial(naive, use_log=True, local_model=True)),
+        ("naive|log|seasonal", partial(naive, use_log=True, seasonal=True)),
+        ("naive|log|local|seasonal",
+            partial(naive, use_log=True, local_model=True, seasonal=True)),
+
         ("trend", partial(trend)),
         ("trend|local", partial(trend, local_model=True)),
         ("trend|seasonal", partial(trend, seasonal=True)),
         ("trend|local|seasonal",
             partial(trend, local_model=True, seasonal=True)),
+
+        ("trend|log", partial(trend, use_log=True)),
+        ("trend|log|local", partial(trend, use_log=True, local_model=True)),
+        ("trend|log|seasonal", partial(trend, use_log=True, seasonal=True)),
+        ("trend|log|local|seasonal",
+            partial(trend, use_log=True, local_model=True, seasonal=True)),
 
         ("exsmooth|alpha=0.2", partial(exsmooth, alpha=0.2)),
         ("exsmooth|seasonal|alpha=0.2",
@@ -589,6 +671,14 @@ def create_model_grid():
         ("exsmooth|local|seasonal|alpha=0.2",
             partial(exsmooth, alpha=0.2, local_model=True, seasonal=True)),
 
+        ("exsmooth|log|alpha=0.2", partial(exsmooth, alpha=0.2, use_log=True)),
+        ("exsmooth|log|seasonal|alpha=0.2",
+            partial(exsmooth, alpha=0.2, seasonal=True, use_log=True)),
+        ("exsmooth|log|local|alpha=0.2",
+            partial(exsmooth, alpha=0.2, local_model=True, use_log=True)),
+        ("exsmooth|log|local|seasonal|alpha=0.2",
+            partial(exsmooth, alpha=0.2, local_model=True, seasonal=True, use_log=True)),
+
         ("exsmooth|alpha=0.4", partial(exsmooth, alpha=0.4)),
         ("exsmooth|seasonal|alpha=0.4",
             partial(exsmooth, alpha=0.4, seasonal=True)),
@@ -597,6 +687,14 @@ def create_model_grid():
         ("exsmooth|local|seasonal|alpha=0.4",
             partial(exsmooth, alpha=0.4, local_model=True, seasonal=True)),
 
+        ("exsmooth|log|alpha=0.4", partial(exsmooth, alpha=0.4, use_log=True)),
+        ("exsmooth|log|seasonal|alpha=0.4",
+            partial(exsmooth, alpha=0.4, seasonal=True, use_log=True)),
+        ("exsmooth|log|local|alpha=0.4",
+            partial(exsmooth, alpha=0.4, local_model=True, use_log=True)),
+        ("exsmooth|log|local|seasonal|alpha=0.4",
+            partial(exsmooth, alpha=0.4, local_model=True, seasonal=True, use_log=True)),
+
         ("exsmooth|alpha=0.6", partial(exsmooth, alpha=0.6)),
         ("exsmooth|seasonal|alpha=0.6",
             partial(exsmooth, alpha=0.6, seasonal=True)),
@@ -604,6 +702,14 @@ def create_model_grid():
             partial(exsmooth, alpha=0.6, local_model=True)),
         ("exsmooth|local|seasonal|alpha=0.6",
             partial(exsmooth, alpha=0.6, local_model=True, seasonal=True)),
+
+        ("exsmooth|log|alpha=0.6", partial(exsmooth, alpha=0.6, use_log=True)),
+        ("exsmooth|log|seasonal|alpha=0.6",
+            partial(exsmooth, alpha=0.6, seasonal=True, use_log=True)),
+        ("exsmooth|log|local|alpha=0.6",
+            partial(exsmooth, alpha=0.6, local_model=True, use_log=True)),
+        ("exsmooth|log|local|seasonal|alpha=0.6",
+            partial(exsmooth, alpha=0.6, local_model=True, seasonal=True, use_log=True)),
 
         ("exsmooth|alpha=0.8", partial(exsmooth, alpha=0.8)),
         ("exsmooth|seasonal|alpha=0.8",
@@ -696,40 +802,75 @@ def create_model_grid():
         ("arima|201|seasonal|local", partial(arima, q=2, d=0, p=1,
             local_model=True, seasonal=True)),
 
+        ("arima|log|201", partial(arima, q=2, d=0, p=1, use_log=True)),
+        ("arima|log|201|local", partial(arima, q=2, d=0, p=1, local_model=True, use_log=True)),
+        ("arima|log|201|seasonal", partial(arima, q=2, d=0, p=1, seasonal=True, use_log=True)),
+        ("arima|log|201|seasonal|local", partial(arima, q=2, d=0, p=1,
+            local_model=True, seasonal=True, use_log=True)),
+
         ("fourier", partial(fourier)),
         ("fourier|local", partial(fourier, local_model=True)),
         ("fourier|seasonal", partial(fourier, seasonal=True)),
         ("fourier|seasonal|local", partial(fourier, local_model=True, seasonal=True)),
+
+        ("fourier|log", partial(fourier, use_log=True)),
+        ("fourier|log|local", partial(fourier, local_model=True, use_log=True)),
+        ("fourier|log|seasonal", partial(fourier, seasonal=True, use_log=True)),
+        ("fourier|log|seasonal|local", partial(fourier, local_model=True, seasonal=True, use_log=True)),
     ]
 
     return grid
 
 
-def run_cv(func, y, horiz, freq, step=1):
+def run_cv(cfg, y, horiz, freq, cv_step=1):
     """Run a sliding-window temporal cross-validation (aka backtest) using a 
     given forecasting function (`func`).
     
     """
-    
+
     # allow only 1D time-series arrays
     assert(y.ndim == 1)
 
-    #
+    params, func = cfg
+
+    # the cross-val horizon length may shrink depending on the length of
+    # historical data; shrink the horizon if it is >= the timeseries
+    if horiz >= len(y):
+        cv_horiz = len(y) - 1
+    else:
+        cv_horiz = horiz
+
+    # sliding window horizon actuals
+    Y = sliding_window_view(y[1:], cv_horiz)[::cv_step,:]
+
+    Ycv = []
+
     # |  y     |  horiz  |..............|
     # |  y      |  horiz  |.............|
     # |  y       |  horiz  |............|
     #   ::
     #   ::
     # |  y                    | horiz   |
-    # 
-    Ycv = []
-    for i in range(1, len(y)-horiz+1, step):
-        yp = func(y[:i], horiz, freq)
+
+    for i in range(1, len(y)-cv_horiz+1, cv_step):
+        yp = func(y[:i], cv_horiz, freq)
         Ycv.append(yp)
 
+    # keep the backtest forecasts at each cv_step
     Ycv = np.vstack(Ycv)
 
-    return Ycv
+    assert not np.any(np.isnan(Ycv))
+    assert Ycv.shape == Y.shape
+
+    # calc. error metrics
+    df_results = calc_metrics(Y, Ycv)
+    df_results.insert(0, "model_type", params.split("|")[0])
+    df_results.insert(1, "params", params)
+
+    # generate the final forecast (1-dim)
+    df_results["yhat"] = [func(y, horiz, freq)]
+
+    return df_results
 
 
 def run_cv_select(df, horiz, freq, obj_metric="smape_mean", cv_step=1,
@@ -748,70 +889,15 @@ def run_cv_select(df, horiz, freq, obj_metric="smape_mean", cv_step=1,
     assert y.ndim == 1
     assert obj_metric in OBJ_METRICS
 
-    # pad a length sequence with a single `1`
+    # pad a singleton sequence with a single `1`
     if len(y) < 2:
         y = np.pad(y, [1,0], constant_values=1)
 
     # these are the model configurations to run
-    model_grid = create_model_grid()
+    grid = create_model_grid()
 
-    if show_progress:
-        iter_grid = tqdm(model_grid)
-    else:
-        iter_grid = iter(model_grid)
-
-    # the cross-val horizon length may shrink depending on the length of
-    # historical data
-    cv_horiz = horiz
-
-    # shrink the horizon if it is >= the timeseries
-    if cv_horiz >= len(y):
-        cv_horiz = len(y) - 1
-
-    # sliding window horizon actuals
-    Y = sliding_window_view(y[1:], cv_horiz, )[::cv_step,:]
-
-    cv_results= []
-
-    for model_name, func in iter_grid:
-        Ycv = run_cv(func, y, cv_horiz, freq, step=cv_step)
-
-        assert not np.any(np.isnan(Ycv))
-        assert Ycv.shape == Y.shape, f"{Ycv.shape} != {Y.shape}"
-
-        # generate the final forecast
-        yhat = func(y, horiz, freq)
-
-        assert not np.any(np.isnan(yhat))
-        assert(len(yhat) == horiz)
-
-        cv_results.append((model_name, Ycv, yhat))
-
-    # calculate the errors for each model configuration
-    err_delayed = [("smape", calc_smape)]
-    results_rows = []
-
-    for model_name, Ycv, yhat in cv_results:
-        results = {name: func(Y, Ycv) for name, func in err_delayed}
-
-        # keep the final forecast for the model
-        results["yhat"] = yhat
-        results["model"] = model_name
-        results_rows.append(results)
-
-    df_results = pd.DataFrame(results_rows)
-
-    # calc. metric stats
-    metric_aggs = [
-        ("mean", np.nanmean),
-        ("median", np.nanmedian),
-        ("std", np.nanstd)
-    ]
-
-    for metric, _ in err_delayed:
-        for agg_name, agg in metric_aggs:
-            df_results[f"{metric}_{agg_name}"] = \
-                df_results[metric].apply(agg).round(4)
+    forecasts = [partial(run_cv, cfg, y, horiz, freq, cv_step) for cfg in grid]
+    df_results = pd.concat([fc() for fc in forecasts])
 
     assert obj_metric in df_results
 
@@ -846,7 +932,7 @@ def run_cv_select(df, horiz, freq, obj_metric="smape_mean", cv_step=1,
     df_pred = df[GROUP_COLS + ["demand", "type"]] \
                 .append(df_pred)[GROUP_COLS + ["demand", "type"]]
 
-    return df_results, df_pred
+    return df_pred, df_results
 
 
 def run_pipeline(data, horiz, freq_in, freq_out, obj_metric="smape_mean",
@@ -877,9 +963,7 @@ def run_pipeline(data, horiz, freq_in, freq_out, obj_metric="smape_mean",
 
     if backend == "python":
         for _, dd in groups:
-            df_results, df_pred = \
-                run_cv_select(dd, horiz, freq_out, obj_metric, cv_step=cv_step)
-            yield df_results, df_pred
+            yield run_cv_select(dd, horiz, freq_out, obj_metric, cv_step=cv_step)
     elif backend == "multiprocessing":
         raise NotImplementedError
     elif backend == "pyspark":
@@ -895,6 +979,35 @@ def run_pipeline(data, horiz, freq_in, freq_out, obj_metric="smape_mean",
 #
 # Error metrics
 #
+def calc_metrics(Y, Ycv):
+    """Note, this operates on 2D arrays of sliding window values.
+
+    """
+
+    assert Y.ndim == Ycv.ndim == 2
+    assert Y.shape == Ycv.shape
+
+    # calc. error metrics
+    df_metrics = pd.DataFrame()
+
+    metric_funcs = [("smape", calc_smape)]
+    metric_aggs = [
+        ("mean", np.nanmean),
+        ("median", np.nanmedian),
+        ("std", np.nanstd)
+    ]
+
+    for metric, metric_func in metric_funcs:
+        df_metrics[metric] = [calc_smape(Y, Ycv)]
+        for agg, agg_func in metric_aggs:
+            df_metrics[f"{metric}_{agg}"] = \
+                df_metrics[metric].apply(agg_func).round(4)
+
+    assert(len(df_metrics) == 1)
+
+    return df_metrics
+    
+
 def calc_smape(y, yp, axis=0):
     """Calculate the symmetric mean absolute percentage error (sMAPE).
     
@@ -1059,35 +1172,6 @@ def validate(df):
     is_valid_file = len(err_msgs) == 0
 
     return msgs, is_valid_file
-
-
-def preprocess(y, local_model=False, use_log=False , trim_zeros=False, **kwargs):
-    """
-    """
-
-    assert(len(y) > 0)
-
-    if len(y) > 8 and trim_zeros:
-        y = np.trim_zeros(y, trim ='f')
-
-    if len(y) == 1:
-        y = np.append(y, 0)
-
-    if use_log:
-        y = np.log1p(y)
-
-    return y
-
-
-def postprocess(df, df_results):
-    """Post-process raw results to a user-friendly dataframe format, including
-    timestamps etc. for easy file exporting.
-
-    """
-
-    # TODO:
-
-    return
 
 
 def ts_groups(self, **groupby_kwds):
