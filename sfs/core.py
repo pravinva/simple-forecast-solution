@@ -833,11 +833,13 @@ def create_model_grid():
     return grid
 
 
-def run_cv(cfg, y, horiz, freq, cv_stride=1):
+def run_cv(cfg, df, horiz, freq, cv_stride=1):
     """Run a sliding-window temporal cross-validation (aka backtest) using a 
     given forecasting function (`func`).
     
     """
+    
+    y = df["demand"].values
 
     # allow only 1D time-series arrays
     assert(y.ndim == 1)
@@ -853,10 +855,19 @@ def run_cv(cfg, y, horiz, freq, cv_stride=1):
         cv_horiz = len(y) - 1
     else:
         cv_horiz = horiz
-
+        
+    if len(df) == len(y):
+        ts = df.index
+    else:
+        assert len(y) > len(df)
+        diff = len(y) - len(df)
+        ts = np.append(
+            pd.date_range(end=df.index[0], freq=freq, periods=diff+1),
+            df.index)
+        
     # sliding window horizon actuals
     Y = sliding_window_view(y[1:], cv_horiz)[::cv_stride,:]
-
+    
     Ycv = []
 
     # |  y     |  horiz  |..............|
@@ -872,7 +883,12 @@ def run_cv(cfg, y, horiz, freq, cv_stride=1):
 
     # keep the backtest forecasts at each cv_stride
     Ycv = np.vstack(Ycv)
-
+    
+    # keep the backtest forecast time indices
+    Yts = sliding_window_view(ts[1:], cv_horiz)[::cv_stride,:]
+    
+    assert Yts.shape == Y.shape
+    assert Yts.shape == Ycv.shape
     assert not np.any(np.isnan(Ycv))
     assert Ycv.shape == Y.shape
 
@@ -887,8 +903,15 @@ def run_cv(cfg, y, horiz, freq, cv_stride=1):
 
     # generate the final forecast (1-dim)
     df_results["yhat"] = [func(y, horiz, freq)]
+    
+    # store each of the cv predictions and actuals, flattened for simplicity
+    df_cv_results = pd.DataFrame()
+    df_cv_results["y_cv"] = np.hstack(Y)
+    df_cv_results["yp_cv"] = np.hstack(Ycv)
+    df_cv_results.index =  np.hstack(Yts)
+    #df_cv_results.sort_index(inplace=True)
 
-    return df_results
+    return df_results, df_cv_results
 
 
 def run_cv_select(df, horiz, freq, obj_metric="smape_mean", cv_stride=1,
@@ -901,17 +924,15 @@ def run_cv_select(df, horiz, freq, obj_metric="smape_mean", cv_stride=1,
     family = df.iloc[0]["family"]
     item_id = df.iloc[0]["item_id"]
 
-    y = df["demand"].values
-
-    assert len(y) > 0
-    assert y.ndim == 1
+    assert len(df["demand"]) > 0
     assert obj_metric in OBJ_METRICS
 
     # these are the model configurations to run
     grid = create_model_grid()
 
-    forecasts = [partial(run_cv, cfg, y, horiz, freq, cv_stride) for cfg in grid]
-    df_results = pd.concat([fc() for fc in forecasts])
+    results = [partial(run_cv, cfg, df, horiz, freq, cv_stride)() for cfg in grid]
+    df_results = pd.concat([r[0] for r in results])
+    df_cv_results = pd.concat([r[1] for r in results])
     
     assert obj_metric in df_results
 
@@ -927,6 +948,9 @@ def run_cv_select(df, horiz, freq, obj_metric="smape_mean", cv_stride=1,
     yhat = df_results.iloc[0]["yhat"]
     yhat_ts = pd.date_range(df.index.max(),
                             periods=len(yhat)+1, freq=freq, closed="right")
+    
+    # get the timeseries indices of the horizons
+    df_horiz = df.iloc[-1].index
 
     assert len(yhat_ts) > 0
     assert len(yhat_ts) == len(yhat)
@@ -946,7 +970,7 @@ def run_cv_select(df, horiz, freq, obj_metric="smape_mean", cv_stride=1,
     df_pred = df[GROUP_COLS + ["demand", "type"]] \
                 .append(df_pred)[GROUP_COLS + ["demand", "type"]]
 
-    return df_pred, df_results
+    return df_pred, df_results, df_cv_results
 
 
 def run_pipeline(data, horiz, freq_in, freq_out, obj_metric="smape_mean",
