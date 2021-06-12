@@ -11,6 +11,8 @@ from scipy import signal, stats
 from numpy import fft
 from numpy.lib.stride_tricks import sliding_window_view
 
+from joblib import Parallel, delayed
+
 EXP_COLS = ["timestamp", "channel", "family", "item_id", "demand"]
 GROUP_COLS = ["channel", "family", "item_id"]
 OBJ_METRICS = ["smape_mean"]
@@ -32,6 +34,8 @@ def forecaster(func):
     """
 
     def do_forecast(y, horiz, freq, **kwargs):
+        assert horiz > 0
+        
         local_model = kwargs.get("local_model", False)
         seasonal = kwargs.get("seasonal", False)
         trim_zeros = kwargs.get("trim_zeros", False)
@@ -42,13 +46,12 @@ def forecaster(func):
 
         if use_log:
             y = np.log1p(y)
-
-        # pad singleton timeseries with a single zero
-        if len(y) == 1:
-            y = np.concatenate(([0], y))
-
+            
         if local_model:
             y = y[-TAIL_LEN[freq]:]
+            
+        if len(y) == 1:
+            y = np.pad(y, [1,0], constant_values=1)
 
         y = np.nan_to_num(y)
 
@@ -60,13 +63,15 @@ def forecaster(func):
                 period = int(len(y) / 2)
 
             kwargs.pop("seasonal")
-
-            dc = sm.tsa.seasonal_decompose(y, period=period, two_sided=False)
-
-            yp_seasonal = fourier(dc.seasonal, horiz, freq, seasonal=False)
-            yp_trend = func(np.nan_to_num(dc.trend), horiz, **kwargs)
-            yp_resid = func(np.nan_to_num(dc.resid), horiz, **kwargs)
-            yp = yp_seasonal + yp_trend + yp_resid
+            
+            try:
+                dc = sm.tsa.seasonal_decompose(y, period=period, two_sided=False)
+                yp_seasonal = fourier(dc.seasonal, horiz, freq, seasonal=False)
+                yp_trend = func(np.nan_to_num(dc.trend), horiz, **kwargs)
+                yp_resid = func(np.nan_to_num(dc.resid), horiz, **kwargs)
+                yp = yp_seasonal + yp_trend + yp_resid
+            except:
+                yp = np.zeros(horiz)
         else:
             # ensure the input values are not null
             yp = func(y, horiz, **kwargs)
@@ -76,7 +81,14 @@ def forecaster(func):
             yp = np.exp(yp)
 
         yp = np.nan_to_num(yp).clip(0).round(0)
-
+        
+        if len(yp) != horiz:
+            print("---")
+            print(func)
+            print(y)
+            print(yp)
+            print("===")
+        
         assert len(yp) == horiz
 
         return yp
@@ -93,10 +105,9 @@ def exsmooth(y, horiz, **kwargs):
 
     if len(y) > 8:
         y = np.trim_zeros(y, trim ='f')
-
-#   if use_log:
-#       y = np.log1p(y)
-
+    if len(y) == 0:
+        y = np.zeros(1)
+        
     extra_periods = horiz-1
 
     f = [y[0]]
@@ -189,7 +200,7 @@ def fourier(y, horiz, n_harm=15, **kwargs):
     yp : array_like
 
     """
-
+    
     try:
         n = y.shape[0]
         t = np.arange(n)
@@ -215,7 +226,7 @@ def fourier(y, horiz, n_harm=15, **kwargs):
     except:
         traceback.print_exc()
         yp = np.zeros(horiz)
-
+        
     return yp
 
 
@@ -581,7 +592,7 @@ def make_perf_summary(df_results):
     naive_err_median = np.nanmedian(np.hstack(df_best_naive["smape"])).round(4)
     naive_err_std = np.nanstd(np.hstack(df_best_naive["smape"])).round(4)
 
-    sr_acc_naive = pd.Series({"err_mean": naive_err_mean,
+    sr_err_naive = pd.Series({"err_mean": naive_err_mean,
                               "err_median": naive_err_median,
                               "err_std": naive_err_std })
 
@@ -590,14 +601,14 @@ def make_perf_summary(df_results):
     err_median = np.nanmedian(np.hstack(df_best["smape"])).round(4)
     err_std = np.nanstd(np.hstack(df_best["smape"])).round(4)
 
-    sr_acc = pd.Series({"err_mean": err_mean,
+    sr_err = pd.Series({"err_mean": err_mean,
                         "err_median": err_median,
                         "err_std": err_std })
     
     acc_increase = ((1 - sr_err.err_mean) - 
                     (1 - sr_err_naive.err_mean)).round(4)
 
-    return df_model_dist, sr_acc, sr_acc_naive, acc_increase
+    return df_model_dist, sr_err, sr_err_naive, acc_increase
 
 
 def make_health_summary(df, freq):
@@ -822,7 +833,7 @@ def create_model_grid():
     return grid
 
 
-def run_cv(cfg, y, horiz, freq, cv_step=1):
+def run_cv(cfg, y, horiz, freq, cv_stride=1):
     """Run a sliding-window temporal cross-validation (aka backtest) using a 
     given forecasting function (`func`).
     
@@ -832,7 +843,10 @@ def run_cv(cfg, y, horiz, freq, cv_step=1):
     assert(y.ndim == 1)
 
     params, func = cfg
-
+    
+    if len(y) == 1:
+        y = np.pad(y, [1,0], constant_values=1)
+        
     # the cross-val horizon length may shrink depending on the length of
     # historical data; shrink the horizon if it is >= the timeseries
     if horiz >= len(y):
@@ -841,7 +855,7 @@ def run_cv(cfg, y, horiz, freq, cv_step=1):
         cv_horiz = horiz
 
     # sliding window horizon actuals
-    Y = sliding_window_view(y[1:], cv_horiz)[::cv_step,:]
+    Y = sliding_window_view(y[1:], cv_horiz)[::cv_stride,:]
 
     Ycv = []
 
@@ -852,11 +866,11 @@ def run_cv(cfg, y, horiz, freq, cv_step=1):
     #   ::
     # |  y                    | horiz   |
 
-    for i in range(1, len(y)-cv_horiz+1, cv_step):
+    for i in range(1, len(y)-cv_horiz+1, cv_stride):
         yp = func(y[:i], cv_horiz, freq)
         Ycv.append(yp)
 
-    # keep the backtest forecasts at each cv_step
+    # keep the backtest forecasts at each cv_stride
     Ycv = np.vstack(Ycv)
 
     assert not np.any(np.isnan(Ycv))
@@ -866,6 +880,10 @@ def run_cv(cfg, y, horiz, freq, cv_step=1):
     df_results = calc_metrics(Y, Ycv)
     df_results.insert(0, "model_type", params.split("|")[0])
     df_results.insert(1, "params", params)
+    
+    # store the final backtest window actuals and predictions
+    df_results["y_cv"] = [Y[-1]]
+    df_results["yp_cv"] = [Ycv[-1]]
 
     # generate the final forecast (1-dim)
     df_results["yhat"] = [func(y, horiz, freq)]
@@ -873,7 +891,7 @@ def run_cv(cfg, y, horiz, freq, cv_step=1):
     return df_results
 
 
-def run_cv_select(df, horiz, freq, obj_metric="smape_mean", cv_step=1,
+def run_cv_select(df, horiz, freq, obj_metric="smape_mean", cv_stride=1,
     show_progress=False):
     """Run the timeseries cross-val model selection across the forecasting
     functions for a single timeseries (`y`) and horizon length (`horiz`).
@@ -889,16 +907,12 @@ def run_cv_select(df, horiz, freq, obj_metric="smape_mean", cv_step=1,
     assert y.ndim == 1
     assert obj_metric in OBJ_METRICS
 
-    # pad a singleton sequence with a single `1`
-    if len(y) < 2:
-        y = np.pad(y, [1,0], constant_values=1)
-
     # these are the model configurations to run
     grid = create_model_grid()
 
-    forecasts = [partial(run_cv, cfg, y, horiz, freq, cv_step) for cfg in grid]
+    forecasts = [partial(run_cv, cfg, y, horiz, freq, cv_stride) for cfg in grid]
     df_results = pd.concat([fc() for fc in forecasts])
-
+    
     assert obj_metric in df_results
 
     # rank results according to the `obj_metric`
@@ -936,7 +950,7 @@ def run_cv_select(df, horiz, freq, obj_metric="smape_mean", cv_step=1,
 
 
 def run_pipeline(data, horiz, freq_in, freq_out, obj_metric="smape_mean",
-    cv_step=1, backend="python"):
+    cv_stride=1, backend="joblib"):
     """Run model selection over *all* timeseries in a dataframe. Note that
     this is a generator and will yield one results dataframe per timeseries at
     a single iteration.
@@ -948,8 +962,13 @@ def run_pipeline(data, horiz, freq_in, freq_out, obj_metric="smape_mean",
     freq_in : str
     freq_out : str
     obj_metric : str, optional
+    cv_stride : int
+        Stride length of cross-validation sliding window. For example, a
+        `cv_stride=2` for `freq_out='W'` means the cross-validation will be
+        performed every 2 weeks in the training data. Smaller values will lead
+        to longer model selection durations.
     backend : str, optional
-        "python", "multiprocessing", "pyspark", or "lambdamap"
+        "joblib", "multiprocessing", "pyspark", or "lambdamap"
 
     """
 
@@ -961,9 +980,14 @@ def run_pipeline(data, horiz, freq_in, freq_out, obj_metric="smape_mean",
     groups = df.groupby(GROUP_COLS, as_index=False, sort=False)
     job_count = groups.ngroups
 
-    if backend == "python":
-        for _, dd in groups:
-            yield run_cv_select(dd, horiz, freq_out, obj_metric, cv_step=cv_step)
+    if backend == "python": 
+        results = \
+            [run_cv_select(dd, horiz, freq_out, obj_metric, cv_stride)
+                 for _, dd in groups]
+    elif backend == "joblib":
+        results = Parallel(n_jobs=-1, verbose=2)(
+            delayed(run_cv_select)(dd, horiz, freq_out, obj_metric, cv_stride)
+                for _, dd in groups)
     elif backend == "multiprocessing":
         raise NotImplementedError
     elif backend == "pyspark":
@@ -973,7 +997,7 @@ def run_pipeline(data, horiz, freq_in, freq_out, obj_metric="smape_mean",
     else:
         raise NotImplementedError
 
-    return
+    return results
 
 
 #
