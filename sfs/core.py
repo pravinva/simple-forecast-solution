@@ -898,20 +898,21 @@ def run_cv(cfg, df, horiz, freq, cv_stride=1):
     df_results.insert(1, "params", params)
     
     # store the final backtest window actuals and predictions
-    df_results["y_cv"] = [Y[-1]]
-    df_results["yp_cv"] = [Ycv[-1]]
+    df_results["y_cv"] = [np.hstack(Y)]
+    df_results["yp_cv"] = [np.hstack(Ycv)]
+    df_results["ts_cv"] =  [np.hstack(Yts)]
 
     # generate the final forecast (1-dim)
     df_results["yhat"] = [func(y, horiz, freq)]
     
     # store each of the cv predictions and actuals, flattened for simplicity
-    df_cv_results = pd.DataFrame()
-    df_cv_results["y_cv"] = np.hstack(Y)
-    df_cv_results["yp_cv"] = np.hstack(Ycv)
-    df_cv_results.index =  np.hstack(Yts)
+    #df_cv_results = pd.DataFrame()
+    #df_cv_results["y_cv"] = [np.hstack(Y)]
+    #df_cv_results["yp_cv"] = [np.hstack(Ycv)]
+    
     #df_cv_results.sort_index(inplace=True)
 
-    return df_results, df_cv_results
+    return df_results
 
 
 def run_cv_select(df, horiz, freq, obj_metric="smape_mean", cv_stride=1,
@@ -931,8 +932,7 @@ def run_cv_select(df, horiz, freq, obj_metric="smape_mean", cv_stride=1,
     grid = create_model_grid()
 
     results = [partial(run_cv, cfg, df, horiz, freq, cv_stride)() for cfg in grid]
-    df_results = pd.concat([r[0] for r in results])
-    df_cv_results = pd.concat([r[1] for r in results])
+    df_results = pd.concat(results)
     
     assert obj_metric in df_results
 
@@ -970,7 +970,7 @@ def run_cv_select(df, horiz, freq, obj_metric="smape_mean", cv_stride=1,
     df_pred = df[GROUP_COLS + ["demand", "type"]] \
                 .append(df_pred)[GROUP_COLS + ["demand", "type"]]
 
-    return df_pred, df_results, df_cv_results
+    return df_pred, df_results
 
 
 def run_pipeline(data, horiz, freq_in, freq_out, obj_metric="smape_mean",
