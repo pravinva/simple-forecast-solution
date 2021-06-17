@@ -615,11 +615,23 @@ def make_health_summary(df, freq):
     """Analyze the timeseries of a dataframe, providing summaries of missing
     dates, min-max values, counts etc.
 
+    Parameters
+    ----------
+    df : pd.DataFrame
+    freq : str
+
+    Returns
+    -------
+    pd.DataFrame
+
     """
 
     # no. of missing dates b/w the first and last dates of the timeseries
     def null_count(xs):
         return xs.isnull().sum().astype(int)
+
+    def nonnull_count(xs):
+        return (~xs.isnull()).sum().astype(int)
 
     # no. days of non-zero demand
     def nonzero_count(xs):
@@ -628,12 +640,25 @@ def make_health_summary(df, freq):
     def date_count(xs):
         return xs.index.nunique()
 
-    df_grps = df.groupby(GROUP_COLS)
-
+    df_summary = df.reset_index().rename({"index": "timestamp"}, axis=1)
     df_summary = \
-        df.groupby(GROUP_COLS) \
-          .agg({"demand": [null_count, nonzero_count, np.nanmean, np.nanmedian]}) \
+        df_summary \
+          .groupby(GROUP_COLS) \
+          .agg({"demand": [null_count, nonzero_count, nonnull_count,
+                           np.nanmean, np.nanmedian],
+                "timestamp": [min, max]}) \
           .rename({"null_count": "missing_dates"}, axis=1)
+
+    df_summary["pc_missing"] = (
+        df_summary[("demand", "missing_dates")] / 
+        ( df_summary[("demand", "missing_dates")] +
+          df_summary[("demand", "nonnull_count")] )
+    )
+    df_summary.columns = df_summary.columns.map("_".join).str.strip("_")
+
+    df_summary["pc_missing"] = np.round(df_summary["pc_missing"] * 100, 0)
+    df_summary["demand_nanmean"] = np.round(df_summary["demand_nanmean"], 1)
+    df_summary = df_summary.reset_index()
 
     return df_summary
 
