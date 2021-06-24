@@ -1,9 +1,12 @@
 import traceback
+import contextlib
 import statsmodels.api as sm
 import pandas as pd
 import numpy as np
+import joblib
 
 from collections import OrderedDict
+from concurrent import futures
 from functools import partial
 from tqdm.auto import tqdm
 
@@ -999,7 +1002,7 @@ def run_cv_select(df, horiz, freq, obj_metric="smape_mean", cv_stride=1,
 
 
 def run_pipeline(data, horiz, freq_in, freq_out, obj_metric="smape_mean",
-    cv_stride=1, backend="joblib"):
+    cv_stride=1, backend="joblib", tqdm_obj=None):
     """Run model selection over *all* timeseries in a dataframe. Note that
     this is a generator and will yield one results dataframe per timeseries at
     a single iteration.
@@ -1034,11 +1037,24 @@ def run_pipeline(data, horiz, freq_in, freq_out, obj_metric="smape_mean",
             [run_cv_select(dd, horiz, freq_out, obj_metric, cv_stride)
                  for _, dd in groups]
     elif backend == "joblib":
-        results = Parallel(n_jobs=-1, verbose=2)(
-            delayed(run_cv_select)(dd, horiz, freq_out, obj_metric, cv_stride)
-                for _, dd in groups)
-    elif backend == "multiprocessing":
-        raise NotImplementedError
+        if tqdm_obj is None:
+            tqdm_obj = tqdm(total=job_count)
+
+        with tqdm_joblib(tqdm_obj) as progress_bar:
+            results = Parallel(n_jobs=-1)(
+                delayed(run_cv_select)(dd, horiz, freq_out, obj_metric, cv_stride)
+                    for _, dd in groups)
+    elif backend == "futures":
+        ex = futures.ProcessPoolExecutor()
+
+        wait_for = [
+            ex.submit(run_cv_select,
+                *(dd, horiz, freq_out, obj_metric, cv_stride))
+                for _, dd in groups
+        ]
+
+        # return the list of futures
+        results = wait_for
     elif backend == "pyspark":
         raise NotImplementedError
     elif backend == "lambdamap":
@@ -1143,7 +1159,9 @@ def load_data(data, impute_freq=None):
                     "demand": float})
 
     # set timeseries dataframe index
-    df.set_index(pd.DatetimeIndex(df.pop("timestamp")), inplace=True)
+    if "timestamp" in df:
+        df.set_index(pd.DatetimeIndex(df.pop("timestamp")), inplace=True)
+
     df.index.name = None
 
     if impute_freq is not None:
@@ -1261,3 +1279,36 @@ def _sum(y):
     if np.all(pd.isnull(y)):
         return np.nan
     return np.nansum(y)
+
+
+@contextlib.contextmanager
+def tqdm_joblib(tqdm_object):
+    """
+    Context manager to patch joblib to report into tqdm progress bar given as argument
+
+    Source: https://stackoverflow.com/questions/24983493/tracking-progress-of-joblib-parallel-execution#answer-58936697
+
+    Usage:
+        form math import sqrt
+        from tqdm import tqdm
+        from joblib import Parallel, delayed
+
+        with tqdm_joblib(tqdm(desc="My calculation", total=10)) as progress_bar:
+            Parallel(n_jobs=16)(delayed(sqrt)(i**2) for i in range(10))
+    """
+    class TqdmBatchCompletionCallback(joblib.parallel.BatchCompletionCallBack):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+
+        def __call__(self, *args, **kwargs):
+            tqdm_object.update(n=self.batch_size)
+            return super().__call__(*args, **kwargs)
+
+    old_batch_callback = joblib.parallel.BatchCompletionCallBack
+    joblib.parallel.BatchCompletionCallBack = TqdmBatchCompletionCallback
+
+    try:
+        yield tqdm_object
+    finally:
+        joblib.parallel.BatchCompletionCallBack = old_batch_callback
+        tqdm_object.close()
