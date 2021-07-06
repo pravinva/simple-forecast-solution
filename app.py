@@ -1,6 +1,7 @@
 import time
 import datetime
 import uuid
+import base64
 
 import numpy as np
 import pandas as pd
@@ -517,6 +518,38 @@ def page_view_report(state):
                 )
                 st.plotly_chart(fig, use_container_width=True)
 
+#       report_f = state.df_results.to_csv(index=False)
+#       report_b64 = base64.b64encode(report_f.encode()).decode()
+#       report_fn = f"{state.uploaded_file.name}_report.csv"
+
+#       href_html = f"""
+#       - <a href='data:file/csv;base64,{forecast_b64}' download='{forecast_fn}'>{forecast_fn}</a>
+#       - <a href='data:file/csv;base64,{report_b64}' download='{report_fn}'>{report_fn}</a>
+#       """
+
+#       st.subheader("Downloads")
+#       dl_button = st.button("Download Forecast")
+
+#       if dl_button:
+#           f = state.df_pred.to_csv(index=False)
+#           forecast_b64 = base64.b64encode(f.encode()).decode()
+#           forecast_fn = f"{state.uploaded_file.name}_forecast.csv"
+
+#           report_f = state.df_results.to_csv(index=False)
+#           report_b64 = base64.b64encode(report_f.encode()).decode()
+#           report_fn = f"{state.uploaded_file.name}_report.csv"
+
+#           href_html = f"""
+#           - <a href="javascript:void(0)" onclick="location.href='data:file/csv;base64,{report_b64}'" download='{report_fn}'>{report_fn}</a>
+#           """
+
+#           st.markdown(href_html, unsafe_allow_html=True)
+
+#       - <a href='data:file/csv;base64,{report_b64}' download='{report_fn}'>{report_fn}</a>
+#       """
+
+
+
 #       with col3:
 #           st.markdown("#### Summary")
 
@@ -575,6 +608,7 @@ def display_progress(wait_for):
 
 
 if __name__ == "__main__":
+    st.set_page_config(layout="wide")
     state = get_state()
 
     #st.set_page_config(layout="wide")

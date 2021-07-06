@@ -1,7 +1,0 @@
-{
-    "tableName": "voyagerForecastJobs",
-    "partitionKeyName": "name",
-    "partitionKeyType": "S",
-    "sortKeyName": "createdAt",
-    "sortKeyType": "S"
-}

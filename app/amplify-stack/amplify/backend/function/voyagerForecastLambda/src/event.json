@@ -1,7 +1,0 @@
-{
-    "httpMethod": "POST",
-    "body": "{\"fileS3Key\": \"private/ap-southeast-2:813166ac-ee94-4f53-8d17-4ff80d98367f/852b7374-97b6-4828-b7fe-17b97bc80e82.csv\", \"horizonAmount\": 12, \"horizonUnit\": \"M\", \"frequencyUnit\": \"M\"}",
-    "path": "/forecast",
-    "resource": "/{proxy+}",
-    "queryStringParameters": {}
-}

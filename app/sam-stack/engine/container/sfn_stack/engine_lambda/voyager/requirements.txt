@@ -1,9 +1,0 @@
-awswrangler==2.6.0
-awslambdaric
-cloudpickle==1.6.0
-scikit-learn==0.24.1
-s3fs>=0.5.*
-scipy==1.6.2
-tqdm==4.60.0
-requests
-toolz
