@@ -11,12 +11,8 @@ setuptools.setup(
         "scipy>=1.6.0",
         "tqdm"
     ],
-
-    python_requires=">=3.6",
-
+    python_requires=">=3.8",
     classifiers=[
-        "Programming Language :: Python :: 3.6",
-        "Programming Language :: Python :: 3.7",
         "Programming Language :: Python :: 3.8"
         "Programming Language :: Python :: 3.9"
     ],
