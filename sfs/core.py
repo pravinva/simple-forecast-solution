@@ -21,9 +21,9 @@ GROUP_COLS = ["channel", "family", "item_id"]
 OBJ_METRICS = ["smape_mean"]
 
 # these define how long a tail period is for each freq.
-TAIL_LEN = {"D": 56, "W": 12, "M": 3}
+TAIL_LEN = {"D": 56, "W": 12, "W-MON": 12, "M": 3}
 
-DC_PERIODS = {"D": 365, "W": 52, "M": 12}
+DC_PERIODS = {"D": 365, "W": 52, "W-MON": 52, "M": 12}
 
 
 #
@@ -926,9 +926,9 @@ def run_cv(cfg, df, horiz, freq, cv_stride=1):
     df_results.insert(1, "params", params)
     
     # store the final backtest window actuals and predictions
-    df_results["y_cv"] = [np.hstack(Y)]
-    df_results["yp_cv"] = [np.hstack(Ycv)]
-    df_results["ts_cv"] =  [np.hstack(Yts)]
+    df_results["y_cv"] = [Y]
+    df_results["yp_cv"] = [Ycv]
+    df_results["ts_cv"] =  [Yts]
 
     # generate the final forecast (1-dim)
     df_results["yhat"] = [func(y, horiz, freq)]
@@ -949,6 +949,10 @@ def run_cv_select(df, horiz, freq, obj_metric="smape_mean", cv_stride=1,
     functions for a single timeseries (`y`) and horizon length (`horiz`).
 
     """
+    
+    if horiz is None:
+        horiz = int(df.iloc[0]["horiz"])
+        
     channel = df.iloc[0]["channel"]
     family = df.iloc[0]["family"]
     item_id = df.iloc[0]["item_id"]
@@ -971,6 +975,7 @@ def run_cv_select(df, horiz, freq, obj_metric="smape_mean", cv_stride=1,
     df_results.insert(0, "channel", channel)
     df_results.insert(1, "family", family)
     df_results.insert(2, "item_id", item_id)
+    df_results.insert(3, "horiz", horiz)
 
     # get the forecast from the best model
     yhat = df_results.iloc[0]["yhat"]
@@ -981,7 +986,7 @@ def run_cv_select(df, horiz, freq, obj_metric="smape_mean", cv_stride=1,
     df_horiz = df.iloc[-1].index
 
     assert len(yhat_ts) > 0
-    assert len(yhat_ts) == len(yhat)
+    assert len(yhat_ts) == len(yhat), f"{yhat_ts} {yhat}"
 
     # make the forecast dataframe
     df_pred = pd.DataFrame({"demand": yhat, "timestamp": yhat_ts})
@@ -989,6 +994,8 @@ def run_cv_select(df, horiz, freq, obj_metric="smape_mean", cv_stride=1,
     df_pred.insert(0, "channel", channel)
     df_pred.insert(1, "family", family)
     df_pred.insert(2, "item_id", item_id)
+    df_pred.insert(3, "horiz", horiz)
+    
     df_pred["type"] = "fcast"
     df_pred.set_index("timestamp", drop=False, inplace=True)
 
@@ -1001,8 +1008,8 @@ def run_cv_select(df, horiz, freq, obj_metric="smape_mean", cv_stride=1,
     return df_pred, df_results
 
 
-def run_pipeline(data, horiz, freq_in, freq_out, obj_metric="smape_mean",
-    cv_stride=1, backend="joblib", tqdm_obj=None):
+def run_pipeline(data, freq_in, freq_out, obj_metric="smape_mean",
+    cv_stride=1, backend="joblib", tqdm_obj=None, horiz=None):
     """Run model selection over *all* timeseries in a dataframe. Note that
     this is a generator and will yield one results dataframe per timeseries at
     a single iteration.
@@ -1023,13 +1030,24 @@ def run_pipeline(data, horiz, freq_in, freq_out, obj_metric="smape_mean",
         "joblib", "multiprocessing", "pyspark", or "lambdamap"
 
     """
+    
+    if horiz is None:
+        df_horiz = data[GROUP_COLS + ["horiz"]].drop_duplicates()
 
     df = load_data(data, freq_in)
 
     # resample the input dataset to the desired frequency.
     df = resample(df, freq_out)
-
-    groups = df.groupby(GROUP_COLS, as_index=False, sort=False)
+    
+    if horiz is None:
+        df["timestamp"] = df.index
+        df = df.merge(df_horiz, on=GROUP_COLS, how="left")
+        df.set_index("timestamp", inplace=True)
+        group_cols = GROUP_COLS + ["horiz"]
+    else:
+        group_cols = GROUP_COLS
+    
+    groups = df.groupby(group_cols, as_index=False, sort=False)
     job_count = groups.ngroups
 
     if backend == "python": 
@@ -1037,13 +1055,9 @@ def run_pipeline(data, horiz, freq_in, freq_out, obj_metric="smape_mean",
             [run_cv_select(dd, horiz, freq_out, obj_metric, cv_stride)
                  for _, dd in groups]
     elif backend == "joblib":
-        if tqdm_obj is None:
-            tqdm_obj = tqdm(total=job_count)
-
-        with tqdm_joblib(tqdm_obj) as progress_bar:
-            results = Parallel(n_jobs=-1)(
-                delayed(run_cv_select)(dd, horiz, freq_out, obj_metric, cv_stride)
-                    for _, dd in groups)
+        results = Parallel(n_jobs=-1, verbose=7)(
+            delayed(run_cv_select)(dd, horiz, freq_out, obj_metric, cv_stride)
+                for _, dd in groups)
     elif backend == "futures":
         ex = futures.ProcessPoolExecutor()
 
