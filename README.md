@@ -45,6 +45,8 @@ pip3 install -e .
 
 ## Run the app
 
+The app will be accessible from your web browser at `http://localhost:8000`
 ```bash
-streamlit ...
+cd ./sfs/app/
+streamlit run ./app.py
 ```

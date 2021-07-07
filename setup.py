@@ -9,9 +9,10 @@ setuptools.setup(
         "pandas>=1.2.4",
         "numpy>=1.20.0",
         "scipy>=1.6.0",
+        "joblib",
         "tqdm",
         "streamlit",
-        "joblib"
+        "stqdm"
     ],
     python_requires=">=3.8",
     classifiers=[
