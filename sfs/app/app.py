@@ -18,9 +18,11 @@ from concurrent import futures
 from tabulate import tabulate
 from stqdm import stqdm
 from SessionState import get_state
-from sfs import (load_data, run_pipeline,
+from sfs import (load_data, run_pipeline, run_cv_select,
     make_demand_classification, make_perf_summary,
     make_health_summary, GROUP_COLS, EXP_COLS)
+
+from lambdamap import LambdaExecutor
 
 ST_STATIC_PATH = pathlib.Path(st.__path__[0]).joinpath("static")
 ST_DOWNLOADS_PATH = ST_STATIC_PATH.joinpath("downloads")
@@ -52,6 +54,7 @@ def validate(df):
 
     return msgs, is_valid_file
 
+
 @st.cache
 def load_uploaded_file(uploaded_file):
     """
@@ -68,6 +71,84 @@ def load_uploaded_file(uploaded_file):
     uploaded_file.seek(0, 0)
 
     return df
+
+
+class StreamlitExecutor(LambdaExecutor):
+    """Custom LambdaExecutor to display a progress bar in the app.
+    """
+
+    def display_progress(self, wait_for):
+        """
+        """
+
+        # display progress of the futures
+        pbar = stqdm(desc="Progress", total=len(wait_for))
+        prev_n_done = 0
+        n_done = sum(f.done() for f in wait_for)
+
+        while n_done != len(wait_for):
+            diff = n_done - prev_n_done
+            pbar.update(diff)
+            prev_n_done = n_done
+            n_done = sum(f.done() for f in wait_for)
+            time.sleep(0.5)
+
+        diff = n_done - prev_n_done
+        pbar.update(diff)
+        #pbar.close()
+
+        return
+
+    def map(self, func, payloads, local_mode=False):
+        """
+        """
+
+        if local_mode:
+            f = func
+        else:
+            f = LambdaFunction(func, self._client, self._lambda_arn)
+        
+        ex = self._executor
+        wait_for = [ex.submit(f, *p["args"], **p["kwargs"]) for p in payloads]
+
+        self.display_progress(wait_for)
+
+        results = [f.result() for f in futures.as_completed(wait_for)]
+
+        return results
+
+
+def run_lambdamap(state):
+    """
+    """
+
+    '''
+    def run_cv_select(df, horiz, freq, obj_metric="smape_mean", cv_stride=1,
+        show_progress=False):
+    '''
+
+
+    horiz = state.horiz
+    freq = FREQ_MAP[state.freq_in]
+
+    payloads = []
+    groups = state.df.groupby(GROUP_COLS, as_index=False, sort=False)
+
+    # generate payload
+    for _, dd in groups:
+        payloads.append(
+            {"args": (dd, horiz, freq),
+             "kwargs": {"obj_metric": "smape_mean", "cv_stride": 1}})
+
+    results = executor.map(run_cv_select, payloads)
+
+    wait_for = [
+        ex.submit(run_cv_select,
+            *(dd, horiz, freq_out, obj_metric, cv_stride))
+            for _, dd in groups
+    ]
+
+    return
 
 
 #
@@ -106,63 +187,6 @@ def launch_sfs_forecast(state):
 #
 # Panels
 #
-def panel_health_check(state):
-    st.subheader("Data Health Check")
-
-    with st.spinner("Running data health check..."):
-        df_health = make_health_summary(state.df, FREQ_MAP[state.freq_in])
-        state.df_health = df_health
-
-    _cols = st.beta_columns([1,1,1])
-
-    with _cols[0]:
-        st.subheader("Summary")
-
-        num_series = df_health.shape[0]
-        num_channels = df_health["channel"].nunique()
-        num_families = df_health["family"].nunique()
-        num_item_ids = df_health["item_id"].nunique()
-        first_date = df_health['timestamp_min'].dt.strftime('%Y-%m-%d').min()
-        last_date = df_health['timestamp_max'].dt.strftime('%Y-%m-%d').max()
-
-        state.num_series = num_series
-
-        st.text(f"No. series:\t{num_series}\n"
-                f"No. channels:\t{num_channels}\n"
-                f"No. families:\t{num_families}\n"
-                f"No. item IDs:\t{num_item_ids}\n"
-                f"First date:\t{first_date}\n"
-                f"Last date:\t{last_date}")
-
-    with _cols[1]:
-        st.subheader("Series Lengths")
-        fig = px.histogram(df_health, x="demand_nonnull_count",
-                           height=160)
-        fig.update_layout(
-            margin={"t": 0, "b": 5, "r": 5, "l": 5},
-            xaxis_title="length",
-            yaxis_title="# series",
-            bargroupgap=0.025,
-        )
-
-        st.plotly_chart(fig, use_container_width=True)
-
-    with _cols[2]:
-        st.subheader("Missing Dates")
-        fig = px.histogram(df_health, x="demand_missing_dates",
-                           height=160)
-        fig.update_layout(
-            margin={"t": 0, "b": 5, "r": 5, "l": 5},
-            xaxis_title="# dates",
-            yaxis_title="# series",
-            bargroupgap=0.025,
-        )
-
-        st.plotly_chart(fig, use_container_width=True)
-
-    return
-
-
 def panel_launch_forecast(state):
     """
     """
@@ -323,7 +347,8 @@ def panel_prepare_data(state):
     `item_id` – unique identifier/SKU of the item  
     `demand` – demand for the item
 
-    Each row indicates the demand for a particular item for a given date.
+    Each row indicates the demand for a particular item for a given date. 
+    Each timeseries is identified by its `channel`, `family`, and `item_id`.
 
     #### Example
 
@@ -333,6 +358,71 @@ def panel_prepare_data(state):
     2018-07-03,Store,Footwear,SKU29293,413
     ...
     ```"""))
+
+    return
+
+
+def panel_health_check(state):
+    """
+    """
+
+    df_health = state.df_health
+
+    num_series = df_health.shape[0]
+    num_channels = df_health["channel"].nunique()
+    num_families = df_health["family"].nunique()
+    num_item_ids = df_health["item_id"].nunique()
+    first_date = df_health['timestamp_min'].dt.strftime('%Y-%m-%d').min()
+    last_date = df_health['timestamp_max'].dt.strftime('%Y-%m-%d').max()
+
+    if state.freq_in == 'Daily':
+        duration_unit = 'D'
+        duration_str = 'days'
+    elif state.freq_in == 'Weekly':
+        duration_unit = 'W'
+        duration_str = 'weeks'
+    elif state.freq_in == 'Monthly':
+        duration_unit = 'M'
+        duration_str = 'months'
+    else:
+        raise NotImplementedError
+
+    duration = pd.Timestamp(last_date).to_period(duration_unit) - \
+               pd.Timestamp(first_date).to_period(duration_unit)
+
+    pc_missing = \
+        df_health["demand_missing_dates"].sum() / df_health["demand_len"].sum()
+
+    with st.beta_container():
+        _cols = st.beta_columns(3)
+
+        with _cols[0]:
+            st.markdown("#### Summary")
+            st.text(f"Frequency:\t{state.freq_in}\n"
+                    f"No. series:\t{num_series}\n"
+                    f"No. channels:\t{num_channels}\n"
+                    f"No. families:\t{num_families}\n"
+                    f"No. item IDs:\t{num_item_ids}"
+                )
+
+        with _cols[1]:
+            st.markdown("#### Timespan")
+            st.text(f"Duration:\t{duration.n} {duration_str}\n"
+                    f"First date:\t{first_date}\n"
+                    f"Last date:\t{last_date}\n"
+                    f"% missing:\t{int(np.round(pc_missing*100,0))}")
+
+        with _cols[2]:
+            st.markdown("#### Timeseries Lengths")
+
+            fig = px.box(df_health, x="demand_nonnull_count", height=160)
+            fig.update_layout(
+                margin={"t": 5, "b": 0, "r": 0, "l": 0},
+                xaxis_title=duration_str,
+                height=100
+            )
+
+            st.plotly_chart(fig, use_container_width=True)
 
     return
 
@@ -909,6 +999,7 @@ if __name__ == "__main__":
                         state.vldn_msgs, state.is_valid_file = validate(state.df_upload)
                 else:
                     st.error("Please select a file")
+
             if state.is_valid_file and state.uploaded_file:
                 # parse data into sfs format and impute missing dates according
                 # to the input frequency
@@ -939,54 +1030,8 @@ if __name__ == "__main__":
     if state.df_health is None:
         pass
     else:
-        df_health = state.df_health
-
-        num_series = df_health.shape[0]
-        num_channels = df_health["channel"].nunique()
-        num_families = df_health["family"].nunique()
-        num_item_ids = df_health["item_id"].nunique()
-        first_date = df_health['timestamp_min'].dt.strftime('%Y-%m-%d').min()
-        last_date = df_health['timestamp_max'].dt.strftime('%Y-%m-%d').max()
-        duration = pd.Timestamp(last_date) - pd.Timestamp(first_date)
-
         with st.beta_expander("2 – Data Health Check", expanded=True):
-            with st.beta_container():
-                _cols = st.beta_columns(3)
-
-                with _cols[0]:
-                    st.markdown("#### Summary")
-                    st.text(f"Frequency:\t{state.freq_in}\n"
-                            f"No. series:\t{num_series}\n"
-                            f"No. channels:\t{num_channels}\n"
-                            f"No. families:\t{num_families}\n"
-                            f"No. item IDs:\t{num_item_ids}\n"
-                            f"First date:\t{first_date}\n"
-                            f"Last date:\t{last_date}\n"
-                            f"No. days:\t{duration.days}")
-
-                with _cols[1]:
-                    st.markdown("#### Series Lengths")
-
-                    fig = px.box(df_health, x="demand_nonnull_count", height=160)
-                    fig.update_layout(
-                        margin={"t": 5, "b": 0, "r": 0, "l": 0},
-                        xaxis_title="length",
-                        #yaxis_title="# series"
-                    )
-
-                    st.plotly_chart(fig, use_container_width=True)
-
-                with _cols[2]:
-                    st.markdown("#### Missing Dates")
-
-                    fig = px.box(df_health, x="demand_missing_dates", height=160)
-                    fig.update_layout(
-                        margin={"t": 5, "b": 0, "r": 0, "l": 0},
-                        xaxis_title="# missing dates",
-                        #yaxis_title="# series"
-                    )
-
-                    st.plotly_chart(fig, use_container_width=True)
+            panel_health_check(state)
 
     if state.is_valid_file and state.df is not None:
         with st.beta_expander("3 – Configure & Launch Forecast"):

@@ -14,8 +14,9 @@ setuptools.setup(
         "streamlit",
         "stqdm"
     ],
-    python_requires=">=3.8",
+    python_requires=">=3.7.9",
     classifiers=[
+        "Programming Language :: Python :: 3.7"
         "Programming Language :: Python :: 3.8"
         "Programming Language :: Python :: 3.9"
     ],

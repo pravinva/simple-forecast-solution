@@ -648,7 +648,7 @@ def make_health_summary(df, freq):
         df_summary \
           .groupby(GROUP_COLS) \
           .agg({"demand": [null_count, nonzero_count, nonnull_count,
-                           np.nanmean, np.nanmedian],
+                           np.nanmean, np.nanmedian, len],
                 "timestamp": [min, max]}) \
           .rename({"null_count": "missing_dates"}, axis=1)
 
