@@ -9,14 +9,12 @@ setuptools.setup(
         "pandas>=1.2.4",
         "numpy>=1.20.0",
         "scipy>=1.6.0",
-        "joblib",
         "tqdm",
         "streamlit",
         "stqdm"
     ],
-    python_requires=">=3.7.9",
+    python_requires=">=3.8",
     classifiers=[
-        "Programming Language :: Python :: 3.7"
         "Programming Language :: Python :: 3.8"
         "Programming Language :: Python :: 3.9"
     ],
