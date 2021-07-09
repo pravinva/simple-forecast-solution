@@ -1,0 +1,3 @@
+[submodule "sfs/lambdamap"]
+	path = sfs/lambdamap
+	url = https://github.com/aws-samples/lambdamap
