@@ -3,7 +3,6 @@ import contextlib
 import statsmodels.api as sm
 import pandas as pd
 import numpy as np
-import joblib
 
 from collections import OrderedDict
 from concurrent import futures
@@ -13,8 +12,6 @@ from tqdm.auto import tqdm
 from scipy import signal, stats
 from numpy import fft
 from numpy.lib.stride_tricks import sliding_window_view
-
-from joblib import Parallel, delayed
 
 EXP_COLS = ["timestamp", "channel", "family", "item_id", "demand"]
 GROUP_COLS = ["channel", "family", "item_id"]
@@ -1009,7 +1006,7 @@ def run_cv_select(df, horiz, freq, obj_metric="smape_mean", cv_stride=1,
 
 
 def run_pipeline(data, freq_in, freq_out, obj_metric="smape_mean",
-    cv_stride=1, backend="joblib", tqdm_obj=None, horiz=None):
+    cv_stride=1, backend="futures", tqdm_obj=None, horiz=None):
     """Run model selection over *all* timeseries in a dataframe. Note that
     this is a generator and will yield one results dataframe per timeseries at
     a single iteration.
@@ -1027,7 +1024,7 @@ def run_pipeline(data, freq_in, freq_out, obj_metric="smape_mean",
         performed every 2 weeks in the training data. Smaller values will lead
         to longer model selection durations.
     backend : str, optional
-        "joblib", "multiprocessing", "pyspark", or "lambdamap"
+        "multiprocessing", "pyspark", or "lambdamap"
 
     """
     
@@ -1054,10 +1051,6 @@ def run_pipeline(data, freq_in, freq_out, obj_metric="smape_mean",
         results = \
             [run_cv_select(dd, horiz, freq_out, obj_metric, cv_stride)
                  for _, dd in groups]
-    elif backend == "joblib":
-        results = Parallel(n_jobs=-1, verbose=7)(
-            delayed(run_cv_select)(dd, horiz, freq_out, obj_metric, cv_stride)
-                for _, dd in groups)
     elif backend == "futures":
         ex = futures.ProcessPoolExecutor()
 
@@ -1293,36 +1286,3 @@ def _sum(y):
     if np.all(pd.isnull(y)):
         return np.nan
     return np.nansum(y)
-
-
-@contextlib.contextmanager
-def tqdm_joblib(tqdm_object):
-    """
-    Context manager to patch joblib to report into tqdm progress bar given as argument
-
-    Source: https://stackoverflow.com/questions/24983493/tracking-progress-of-joblib-parallel-execution#answer-58936697
-
-    Usage:
-        form math import sqrt
-        from tqdm import tqdm
-        from joblib import Parallel, delayed
-
-        with tqdm_joblib(tqdm(desc="My calculation", total=10)) as progress_bar:
-            Parallel(n_jobs=16)(delayed(sqrt)(i**2) for i in range(10))
-    """
-    class TqdmBatchCompletionCallback(joblib.parallel.BatchCompletionCallBack):
-        def __init__(self, *args, **kwargs):
-            super().__init__(*args, **kwargs)
-
-        def __call__(self, *args, **kwargs):
-            tqdm_object.update(n=self.batch_size)
-            return super().__call__(*args, **kwargs)
-
-    old_batch_callback = joblib.parallel.BatchCompletionCallBack
-    joblib.parallel.BatchCompletionCallBack = TqdmBatchCompletionCallback
-
-    try:
-        yield tqdm_object
-    finally:
-        joblib.parallel.BatchCompletionCallBack = old_batch_callback
-        tqdm_object.close()

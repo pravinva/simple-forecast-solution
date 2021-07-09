@@ -19,17 +19,13 @@ npm i -g aws-cdk
 ### _Prerequisite_ – Install `lambdamap`
 
 ```bash
-# Clone the lambdamap repository
-git clone https://github.com/aws-samples/lambdamap.git
-
 # Install the lambdamap Python library
-cd ./lambdamap
+cd ./sfs/lambdamap
 pip3 install -e .
 
 # Deploy the lambdamap cloudformation stack
-cd ./cdk
-cdk bootstrap
-cdk deploy
+cd lambdamap/cdk
+cdk deploy -c folder=../../container
 ```
 
 ### Install SFS
