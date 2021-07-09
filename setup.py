@@ -11,7 +11,8 @@ setuptools.setup(
         "scipy>=1.6.0",
         "tqdm",
         "streamlit",
-        "stqdm"
+        "stqdm",
+        "cloudpickle==1.6.0"
     ],
     python_requires=">=3.8",
     classifiers=[

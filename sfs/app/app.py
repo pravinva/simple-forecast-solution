@@ -18,11 +18,11 @@ from concurrent import futures
 from tabulate import tabulate
 from stqdm import stqdm
 from SessionState import get_state
-from sfs import (load_data, run_pipeline, run_cv_select,
+from sfs import (load_data, resample, run_pipeline, run_cv_select,
     make_demand_classification, make_perf_summary,
     make_health_summary, GROUP_COLS, EXP_COLS)
 
-from lambdamap import LambdaExecutor
+from lambdamap import LambdaExecutor, LambdaFunction
 
 ST_STATIC_PATH = pathlib.Path(st.__path__[0]).joinpath("static")
 ST_DOWNLOADS_PATH = ST_STATIC_PATH.joinpath("downloads")
@@ -30,7 +30,7 @@ ST_DOWNLOADS_PATH = ST_STATIC_PATH.joinpath("downloads")
 if not os.path.exists(ST_DOWNLOADS_PATH):
     ST_DOWNLOADS_PATH.mkdir()
 
-FREQ_MAP = OrderedDict(Daily="D", Weekly="W", Monthly="M")
+FREQ_MAP = OrderedDict(Daily="D", Weekly="W-MON", Monthly="MS")
 
 
 def validate(df):
@@ -77,28 +77,6 @@ class StreamlitExecutor(LambdaExecutor):
     """Custom LambdaExecutor to display a progress bar in the app.
     """
 
-    def display_progress(self, wait_for):
-        """
-        """
-
-        # display progress of the futures
-        pbar = stqdm(desc="Progress", total=len(wait_for))
-        prev_n_done = 0
-        n_done = sum(f.done() for f in wait_for)
-
-        while n_done != len(wait_for):
-            diff = n_done - prev_n_done
-            pbar.update(diff)
-            prev_n_done = n_done
-            n_done = sum(f.done() for f in wait_for)
-            time.sleep(0.5)
-
-        diff = n_done - prev_n_done
-        pbar.update(diff)
-        #pbar.close()
-
-        return
-
     def map(self, func, payloads, local_mode=False):
         """
         """
@@ -111,77 +89,49 @@ class StreamlitExecutor(LambdaExecutor):
         ex = self._executor
         wait_for = [ex.submit(f, *p["args"], **p["kwargs"]) for p in payloads]
 
-        self.display_progress(wait_for)
-
-        results = [f.result() for f in futures.as_completed(wait_for)]
-
-        return results
+        return wait_for
 
 
-def run_lambdamap(state):
+def display_progress(wait_for, desc=None):
     """
     """
 
-    '''
-    def run_cv_select(df, horiz, freq, obj_metric="smape_mean", cv_stride=1,
-        show_progress=False):
-    '''
+    # display progress of the futures
+    pbar = stqdm(desc=desc, total=len(wait_for))
+    prev_n_done = 0
+    n_done = sum(f.done() for f in wait_for)
+
+    while n_done != len(wait_for):
+        diff = n_done - prev_n_done
+        pbar.update(diff)
+        prev_n_done = n_done
+        n_done = sum(f.done() for f in wait_for)
+        time.sleep(0.5)
+
+    diff = n_done - prev_n_done
+    pbar.update(diff)
+
+    return
 
 
-    horiz = state.horiz
-    freq = FREQ_MAP[state.freq_in]
+def run_lambdamap(df, horiz, freq):
+    """
+    """
 
     payloads = []
-    groups = state.df.groupby(GROUP_COLS, as_index=False, sort=False)
+    groups = df.groupby(GROUP_COLS, as_index=False, sort=False)
 
     # generate payload
     for _, dd in groups:
         payloads.append(
             {"args": (dd, horiz, freq),
-             "kwargs": {"obj_metric": "smape_mean", "cv_stride": 1}})
+             "kwargs": {"obj_metric": "smape_mean", "cv_stride": 2}})
 
-    results = executor.map(run_cv_select, payloads)
+    executor = StreamlitExecutor(max_workers=min(1000, len(payloads)),
+                                 lambda_arn="LambdaMapFunction")
+    wait_for = executor.map(run_cv_select, payloads)
 
-    wait_for = [
-        ex.submit(run_cv_select,
-            *(dd, horiz, freq_out, obj_metric, cv_stride))
-            for _, dd in groups
-    ]
-
-    return
-
-
-#
-# SFS interaction
-#
-def launch_sfs_forecast(state):
-    """
-    """
-
-    assert state.df is not None
-
-    freq = FREQ_MAP[state.out_freq]
-    n_series = state.df.groupby(GROUP_COLS).ngroups
-
-    # generate the pipeline
-    gen_pipeline = run_pipeline(state.df, state.horiz, freq)
-
-    # get the best model (and forecast) for each timeseries
-    results_lst = []
-    pred_lst = []
-
-    for dd_results, dd_pred in stqdm(gen_pipeline, total=n_series, leave=True):
-        results_lst.append(dd_results[dd_results["rank"] == 1])
-        pred_lst.append(dd_pred)
-
-    # save the results for the report view page
-    state.df_results = pd.concat(results_lst) \
-                         .drop("rank", axis=1) \
-                         .reset_index(drop=True)
-    state.df_pred = pd.concat(pred_lst) \
-                      .reset_index(drop=True)
-
-    return
+    return wait_for
 
 
 #
@@ -898,28 +848,6 @@ def page_view_report(state):
     return
 
 
-def display_progress(wait_for, desc=None):
-    """
-    """
-
-    # display progress of the futures
-    pbar = stqdm(desc=desc, total=len(wait_for))
-    prev_n_done = 0
-    n_done = sum(f.done() for f in wait_for)
-
-    while n_done != len(wait_for):
-        diff = n_done - prev_n_done
-        pbar.update(diff)
-        prev_n_done = n_done
-        n_done = sum(f.done() for f in wait_for)
-        time.sleep(0.5)
-
-    diff = n_done - prev_n_done
-    pbar.update(diff)
-
-    return
-
-
 def make_dataframes(state, wait_for):
     """
     """
@@ -1048,18 +976,29 @@ if __name__ == "__main__":
                             list(FREQ_MAP.keys()).index(state.freq_out) if state.freq_out else 0)
 
                 with _cols[2]:
-                    st.selectbox("Compute Backend", ["AWS Lambda", "Local"], 0)
+                    state.backend = \
+                        st.selectbox("Compute Backend", ["AWS Lambda", "Local"], 0)
 
                 launch_button = st.button("Launch")
 
     #
     # Launch a forecast job
     #
-    if state.is_valid_file and isinstance(state.df, pd.DataFrame) and launch_button:
-        wait_for = \
-            run_pipeline(state.df, FREQ_MAP[state.freq_in],
-                FREQ_MAP[state.freq_out], obj_metric="smape_mean",
-                cv_stride=2, backend="futures", horiz=state.horiz)
+    if state.is_valid_file and isinstance(state.df, pd.DataFrame) and launch_button and state.backend:
+        if state.backend == 'Local':
+            wait_for = \
+                run_pipeline(state.df, FREQ_MAP[state.freq_in],
+                    FREQ_MAP[state.freq_out], obj_metric="smape_mean",
+                    cv_stride=2, backend="futures", horiz=state.horiz)
+        elif state.backend == 'AWS Lambda':
+            # Resample data
+            with st.spinner(f"Resampling to {state.freq_out} frequency"):
+                state.df2 = resample(state.df, FREQ_MAP[state.freq_out])
+
+            wait_for = \
+                run_lambdamap(state.df2, state.horiz, FREQ_MAP[state.freq_out])
+        else:
+            raise NotImplementedError
 
         display_progress(wait_for, "Generating forecast")
 
