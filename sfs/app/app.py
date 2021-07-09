@@ -15,7 +15,6 @@ import plotly.graph_objects as go
 
 from collections import OrderedDict
 from concurrent import futures
-from tabulate import tabulate
 from stqdm import stqdm
 from SessionState import get_state
 from sfs import (load_data, resample, run_pipeline, run_cv_select,

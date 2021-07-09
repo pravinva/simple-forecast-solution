@@ -12,7 +12,8 @@ setuptools.setup(
         "tqdm",
         "streamlit",
         "stqdm",
-        "cloudpickle==1.6.0"
+        "cloudpickle==1.6.0",
+        "plotly"
     ],
     python_requires=">=3.8",
     classifiers=[
