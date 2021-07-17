@@ -526,9 +526,12 @@ def make_demand_classification(df, freq):
 
     tail_len = TAIL_LEN[freq]
 
+#   df_analysis = \
+#       ts_groups(df).agg({"demand": [_retired, _life_periods, len,
+#                                     _spectral_entropy, _lambda_boxcox]})
     df_analysis = \
         ts_groups(df).agg({"demand": [_retired, _life_periods, len,
-                                      _spectral_entropy, _lambda_boxcox]})
+                                      _spectral_entropy]})
 
     # flatten column names
     df_analysis.columns = ["|".join([c.lstrip("_") for c in col])
