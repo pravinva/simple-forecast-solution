@@ -422,7 +422,7 @@ def panel_forecast_summary(state):
             width=200,
             height=150,
         )
-        fig.update_traces(textposition="outside", textinfo="percent+label")
+        fig.update_traces(textinfo="percent+label")
         st.plotly_chart(fig)
 
     acc = (1 - sr_err.err_mean) * 100.
@@ -442,11 +442,13 @@ def make_downloads(df_pred, df_results):
     """
     """
 
-    pred_fn = os.path.join(ST_DOWNLOADS_PATH, f"{state.uploaded_file.name}_fcast.csv")
-    results_fn = os.path.join(ST_DOWNLOADS_PATH, f"{state.uploaded_file.name}_results.csv")
+    pred_fn = os.path.join(ST_DOWNLOADS_PATH,
+            f"{state.uploaded_file.name}_fcast.csv.gz")
+    results_fn = os.path.join(ST_DOWNLOADS_PATH,
+            f"{state.uploaded_file.name}_results.csv.gz")
 
-    state.df_pred.to_csv(pred_fn, index=False)
-    state.df_results.to_csv(results_fn, index=False)
+    state.df_pred.to_csv(pred_fn, index=False, compression="gzip")
+    state.df_results.to_csv(results_fn, index=False, compression="gzip")
 
     return pred_fn, results_fn
 
