@@ -13,7 +13,8 @@ setuptools.setup(
         "streamlit",
         "stqdm",
         "cloudpickle==1.6.0",
-        "plotly"
+        "plotly",
+        "awswrangler"
     ],
     python_requires=">=3.8",
     classifiers=[
