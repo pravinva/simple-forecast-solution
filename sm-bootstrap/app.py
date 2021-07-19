@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import os
+import sys
 
 from aws_cdk import core as cdk
 
@@ -11,24 +12,15 @@ from aws_cdk import core
 
 from cdk.stack import BootstrapStack
 
+PWD = os.path.dirname(os.path.realpath(__file__))
+LAMBDAMAP_CDK_PATH = os.path.join(PWD, "../sfs/lambdamap/")
+
+assert(os.path.exists(LAMBDAMAP_CDK_PATH))
+sys.path.append(LAMBDAMAP_CDK_PATH)
+
+from lambdamap_cdk.stack.stack import LambdaMapStack
 
 app = core.App()
-BootstrapStack(app, "SfsBootstrapStack",
-    # If you don't specify 'env', this stack will be environment-agnostic.
-    # Account/Region-dependent features and context lookups will not work,
-    # but a single synthesized template can be deployed anywhere.
-
-    # Uncomment the next line to specialize this stack for the AWS Account
-    # and Region that are implied by the current CLI configuration.
-
-    #env=core.Environment(account=os.getenv('CDK_DEFAULT_ACCOUNT'), region=os.getenv('CDK_DEFAULT_REGION')),
-
-    # Uncomment the next line if you know exactly what Account and Region you
-    # want to deploy the stack to. */
-
-    #env=core.Environment(account='123456789012', region='us-east-1'),
-
-    # For more information, see https://docs.aws.amazon.com/cdk/latest/guide/environments.html
-    )
-
+BootstrapStack(app, "SfsBootstrapStack")
+LambdaMapStack(app, "SfsLambdaMapStack", function_name="SfsLambdaMapFunction")
 app.synth()
