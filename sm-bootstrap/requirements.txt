@@ -1,0 +1,2 @@
+aws-cdk.core==1.114.0
+aws-cdk.aws-sagemaker==1.114.0

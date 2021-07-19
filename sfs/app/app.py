@@ -1,10 +1,13 @@
 import os
+import sys
+import glob
 import time
 import datetime
 import uuid
 import base64
 import pathlib
 import textwrap
+import argparse
 
 import numpy as np
 import pandas as pd
@@ -22,6 +25,7 @@ from sfs import (load_data, resample, run_pipeline, run_cv_select,
     make_health_summary, GROUP_COLS, EXP_COLS)
 
 from lambdamap import LambdaExecutor, LambdaFunction
+from streamlit.uploaded_file_manager import UploadedFile
 
 ST_STATIC_PATH = pathlib.Path(st.__path__[0]).joinpath("static")
 ST_DOWNLOADS_PATH = ST_STATIC_PATH.joinpath("downloads")
@@ -60,11 +64,14 @@ def load_uploaded_file(uploaded_file):
     """
 
     if uploaded_file.name.endswith(".csv.gz"):
-        df = pd.read_csv(uploaded_file, compression="gzip")
+        compression = "gzip"
     elif uploaded_file.name.endswith(".csv"):
-        df = pd.read_csv(uploaded_file)
+        compression = None
     else:
         raise NotImplementedError
+
+    df = pd.read_csv(uploaded_file, dtype={"timestamp": str},
+                     compression=compression)
 
     # reset read position to start of file
     uploaded_file.seek(0, 0)
@@ -132,6 +139,18 @@ def run_lambdamap(df, horiz, freq):
 
     return wait_for
 
+
+def sm_file_selector(folder_path='.'):
+    """
+    """
+
+    filenames = glob.glob(os.path.join(folder_path, "*.csv"))
+    selected_filename = st.selectbox('Select a file', filenames)
+
+    if selected_filename is None:
+        return None
+
+    return open(os.path.join(folder_path, selected_filename))
 
 #
 # Panels
@@ -879,10 +898,13 @@ def make_dataframes(state, wait_for):
 
     state.df_hist = state.df_pred.query("type == 'actual'")
 
-    n_top = 10
-    df_top = state.df_hist \
-                  .groupby(GROUP_COLS, as_index=False) \
-                  .agg({"demand": sum}) \
+    #
+    # Get the top-10 SKUs, ordered by historic demand
+    #
+    groups = state.df_hist.groupby(GROUP_COLS, as_index=False)
+    n_top = min(groups.ngroups, 10)
+
+    df_top = groups.agg({"demand": sum}) \
                   .sort_values(by="demand", ascending=False) \
                   .head(n_top) \
                   .reset_index(drop=True)
@@ -895,6 +917,14 @@ def make_dataframes(state, wait_for):
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--local-file-dir", type=str,
+        help="/path/to local folder to store input/output files.",
+        default=os.path.expanduser("~/SageMaker/"))
+    args = parser.parse_args()
+
+    assert(os.path.exists(args.local_file_dir))
+
     #st.set_page_config(layout="wide")
     state = get_state()
 
@@ -914,8 +944,20 @@ if __name__ == "__main__":
 
     with st.beta_expander("1 – Load & Validate Data", expanded=True):
         if state.uploaded_file is None:
-            uploaded_file = st.file_uploader("File")
+#           host_type = st.radio("Select host type:",
+#               options=["Amazon SageMaker Notebook Instance", "Self-Hosted"])
+            host_type = "Amazon SageMaker Notebook Instance"
 
+            if host_type == "Amazon SageMaker Notebook Instance":
+                # List uploaded files in local directory
+                uploaded_file = sm_file_selector(folder_path=args.local_file_dir)
+                st.button("Refresh Files")
+            elif host_type == "Self-Hosted":
+                uploaded_file = st.file_uploader("File")
+            else:
+                raise NotImplementedError
+
+            state.host_type = host_type
             state.freq_in = st.selectbox("Frequency", list(FREQ_MAP.keys()))
             validate_button = st.button("Validate")
 
@@ -935,6 +977,11 @@ if __name__ == "__main__":
                 state.df = load_data(state.df_upload, impute_freq=FREQ_MAP[state.freq_in])
                 state.uploaded_file_name = state.uploaded_file.name
 
+                if isinstance(state.uploaded_file, UploadedFile):
+                    state.uploaded_file_size = state.uploaded_file.size
+                else:
+                    state.uploaded_file_size = os.fstat(state.uploaded_file.fileno()).st_size
+
                 st.info(f"Validation succeeded")
             elif state.is_valid_file is None:
                 pass
@@ -942,10 +989,9 @@ if __name__ == "__main__":
                 err_bullets = \
                     "\n\n".join("- " + s for s in state.vldn_msgs["errors"])
                 st.error(f"Validation failed\n\n{err_bullets}")
-
         else:
-            st.text(f"File:\t\t{state.uploaded_file.name}\n"
-                    f"Size:\t\t~{state.uploaded_file.size/1e6:.1f} MB\n"
+            st.text(f"File:\t\t{state.uploaded_file_name}\n"
+                    f"Size:\t\t~{state.uploaded_file_size/1e6:.1f} MB\n"
                     f"Frequency:\t{state.freq_in}")
 
     if state.df is not None and state.df_health is None:
@@ -985,7 +1031,8 @@ if __name__ == "__main__":
     #
     # Launch a forecast job
     #
-    if state.is_valid_file and isinstance(state.df, pd.DataFrame) and launch_button and state.backend:
+    if state.is_valid_file and isinstance(state.df, pd.DataFrame) and \
+        launch_button and state.backend:
         if state.backend == 'Local':
             wait_for = \
                 run_pipeline(state.df, FREQ_MAP[state.freq_in],
