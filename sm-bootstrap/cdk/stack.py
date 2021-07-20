@@ -41,7 +41,7 @@ export LC_ALL=en_US.utf-8 && export LANG=en_US.utf-8
 #
 # Install SFS
 #
-/home/ec2-user/anaconda3/bin/conda create -n sfs python=3.8.10 nodejs=14.17.3
+/home/ec2-user/anaconda3/bin/conda create -n sfs python=3.8.10 nodejs=14
 /home/ec2-user/anaconda3/bin/activate sfs
 
 # Install the dashboard
