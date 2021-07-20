@@ -1,3 +1,4 @@
+# vim: set fdm=indent:
 import os
 import sys
 import glob
@@ -882,8 +883,11 @@ def make_dataframes(state, wait_for):
         results_lst.append(df_results)
 
     # results dataframe
-    state.df_results = pd.concat(results_lst) \
-                         .reset_index(drop=True)
+    df_results = pd.concat(results_lst) \
+                   .reset_index(drop=True) \
+                   .query("channel.notnull() and "
+                          "family.notnull() and "
+                          "item_id.notnull()")
 
     # predictions dataframe
     state.df_pred = pd.concat(pred_lst)
@@ -897,22 +901,30 @@ def make_dataframes(state, wait_for):
 
     state.df_hist = state.df_pred.query("type == 'actual'")
 
+    return state
+
+
+def make_df_top(state):
     #
     # Get the top-10 SKUs, ordered by historic demand
     #
     groups = state.df_hist.groupby(GROUP_COLS, as_index=False)
     n_top = min(groups.ngroups, 10)
+    n_top = groups.ngroups
 
     df_top = groups.agg({"demand": sum}) \
-                  .sort_values(by="demand", ascending=False) \
+                  .sort_values(by="demand", ascending=True) \
                   .head(n_top) \
                   .reset_index(drop=True)
 
-    df_top = df_top.assign(_index=np.arange(n_top)+1).set_index("_index")
+    #df_top["cumsum"] = df_top["demand"].cumsum()
+    #df_top["perc"] = (df_top["demand"] / df_top["cumsum"] * 100).round(0)
+
+    df_top.sort_values(by="demand", ascending=False, inplace=True)
 
     state.df_top = df_top
 
-    return state
+    return
 
 
 if __name__ == "__main__":
@@ -920,6 +932,9 @@ if __name__ == "__main__":
     parser.add_argument("--local-file-dir", type=str,
         help="/path/to local folder to store input/output files.",
         default=os.path.expanduser("~/SageMaker/"))
+    parser.add_argument("--lambdamap-function", type=str,
+        help="ARN/name of the lambdamap function",
+        default="SfsLambdaMapFunction")
     args = parser.parse_args()
 
     assert(os.path.exists(args.local_file_dir))
@@ -1060,6 +1075,10 @@ if __name__ == "__main__":
     else:
         with st.beta_expander("4 – Forecast Summary", expanded=True):
             panel_forecast_summary(state)
+
+        with st.beta_expander("X - Results Explorer", expanded=True):
+            make_df_top(state)
+            st.dataframe(state.df_top)
 
         with st.beta_expander("5 – Visualize Forecast", expanded=True):
             panel_visualization(state)
