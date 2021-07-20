@@ -20,13 +20,14 @@ set -e
 initctl restart jupyter-server --no-wait
 
 # Get the notebook URL
-DASHBOARD_URL=$(aws sagemaker describe-notebook-instance \
+NOTEBOOK_URL=$(aws sagemaker describe-notebook-instance \
     --notebook-instance-name {notebook_instance_name} \
     --query "Url" \
-    --output text)/proxy/8501/
+    --output text)
+DASHBOARD_URL=$NOTEBOOK_URL/proxy/8501/
 
 # Get the instructions ipynb notebook URL (email to user)
-LANDING_PAGE_URL=https://$DASHBOARD_URL/lab/tree/SFS_Landing_Page.ipynb
+LANDING_PAGE_URL=https://$NOTEBOOK_URL/lab/tree/SFS_Landing_Page.ipynb
 
 # Send SNS email
 aws lambda invoke --function-name {sns_lambda_function} \
@@ -93,13 +94,14 @@ sudo -u ec2-user mkdir -p /home/ec2-user/SageMaker/output/
 # the dashboard is deployed, it contains the URL to the landing page
 # sagemaker notebook.
 SNS_EMAIL_LAMBDA_INLINE = """import os
+import re
 import json
 import boto3
 import textwrap
 
 def lambda_handler(event, context):
-    landing_page_url = event["landing_page_url"]
-    dashboard_url = event["dashboard_url"]
+    landing_page_url = "https://" + re.sub(r"^(https*://)", "", event["landing_page_url"])
+    dashboard_url = "https://" + re.sub(r"^(https*://)", "", event["dashboard_url"])
 
     client = boto3.client("sns")
     response = client.publish(
@@ -118,7 +120,7 @@ def lambda_handler(event, context):
 
         Sincerely,
         The Amazon SFS Team
-        ‣ github: https://github.com/aws-samples/simple-forecast-solution
+        ‣ https://github.com/aws-samples/simple-forecast-solution
         '''))
     
     return response
