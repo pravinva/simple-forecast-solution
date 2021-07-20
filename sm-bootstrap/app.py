@@ -19,5 +19,11 @@ assert(os.path.exists(LAMBDAMAP_CDK_PATH))
 sys.path.append(LAMBDAMAP_CDK_PATH)
 
 app = core.App()
-BootstrapStack(app, "SfsBootstrapStack")
+
+stack_name = app.node.try_get_context("stack_name")
+
+if stack_name is None:
+    stack_name = "SfsBootStack"
+
+BootstrapStack(app, stack_name)
 app.synth()

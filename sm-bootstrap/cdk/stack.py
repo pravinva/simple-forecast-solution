@@ -16,9 +16,10 @@ from aws_cdk import (
 #   aws_certificatemanager as certificatemanager,
     aws_iam as iam,
     aws_sagemaker as sm,
+    aws_sns as sns,
+    aws
     core
 )
-
 
 #
 # Lifecycle config raw strings
@@ -30,45 +31,59 @@ initctl restart jupyter-server --no-wait
 #
 # Start SFS dashboard in the background
 #
-/home/ec2-user/anaconda3/bin/activate sfs
-# streamlit hello &
+source /home/ec2-user/anaconda3/bin/activate sfs
+streamlit hello &
 """
 
 LCC_ONCREATE_STR = r"""#!/bin/bash
 set -e
 export LC_ALL=en_US.utf-8 && export LANG=en_US.utf-8
+source /home/ec2-user/anaconda3/bin/activate JupyterSystemEnv
 
 #
 # Install SFS
 #
-/home/ec2-user/anaconda3/bin/conda create -n sfs python=3.8.10 nodejs=14
-/home/ec2-user/anaconda3/bin/activate sfs
+/home/ec2-user/anaconda3/bin/conda create -q -n sfs python=3.8.10
+source /home/ec2-user/anaconda3/bin/activate sfs
 
 # Install the dashboard
-git clone https://github.com/aws-samples/simple-forecast-solution.git
+git clone --recurse-submodules https://github.com/aws-samples/simple-forecast-solution.git
 cd ./simple-forecast-solution
-pip install -e .
+pip install -q -e .
+
+# Install the lambdamap python library
+cd ./sfs/lambdamap/
+pip install -q -e .
+
+# Install aws-cdk
+curl -sL https://rpm.nodesource.com/setup_14.x | bash - \
+    && yum install -y nodejs \
+    && npm install -g aws-cdk@1.114.0
 
 # Install the SfsLambdaMapStack
-cd ./sfs/lambdamap/lambdamap_cdk
-pip install -r ./requirements.txt
-
-# The lambdamap function docker image needs sfs installed
-cdk deploy \
+cd ./lambdamap_cdk/
+pip install -q -r ./requirements.txt
+cdk deploy --require-approval never \
     --context stack_name=SfsLambdaMapStack \
     --context function_name=SfsLambdaMapFunction \
-    --context extra_cmds='pip install git+https://github.com/aws-samples/simple-forecast-solution.git#egg=sfs'
+    --context extra_cmds='pip install -q git+https://github.com/aws-samples/simple-forecast-solution.git#egg=sfs'
+
+# Get the notebook URL
+NOTEBOOK_URL=$(aws sagemaker describe-notebook-instance \
+    --notebook-instance-name {construct_id}-NotebookInstance \
+    --query "Url" \
+    --output text)
+
+# Get the instructions ipynb notebook URL (email to user)
+INSTRUCTIONS_URL=$NOTEBOOK_URL/lab/tree/Instructions.ipynb
 
 #
 # Upgrade jupyter-server-proxy
 #
 source /home/ec2-user/anaconda3/bin/activate JupyterSystemEnv
 
-pip uninstall --yes nbserverproxy || true
-pip install --upgrade jupyter-server-proxy
-
-# Clone your app's source code here
-# git clone https://....
+pip uninstall -q --yes nbserverproxy || true
+pip install -q --upgrade jupyter-server-proxy
 """
 
 
@@ -87,11 +102,11 @@ class BootstrapStack(cdk.Stack):
         lcc_oncreate_obj = \
             sm.CfnNotebookInstanceLifecycleConfig \
               .NotebookInstanceLifecycleHookProperty(
-                  content=core.Fn.base64(LCC_ONCREATE_STR))
+                  content=core.Fn.base64(LCC_ONCREATE_STR.format(construct_id=construct_id)))
 
         lcc = sm.CfnNotebookInstanceLifecycleConfig(
             self,
-            "SfsNotebookLifecycleConfig",
+            f"{construct_id}-NotebookLifecycleConfig",
             on_create=[lcc_oncreate_obj],
             on_start=[lcc_onstart_obj])
 
@@ -100,10 +115,14 @@ class BootstrapStack(cdk.Stack):
         #
         sm_role = iam.Role(
             self,
-            "SfsNotebookRole",
+            f"{construct_id}-NotebookRole",
             assumed_by=iam.ServicePrincipal("sagemaker.amazonaws.com"),
             managed_policies=[
-                iam.ManagedPolicy.from_aws_managed_policy_name("AmazonSageMakerFullAccess")
+                iam.ManagedPolicy.from_aws_managed_policy_name("AmazonSageMakerFullAccess"),
+                iam.ManagedPolicy.from_aws_managed_policy_name("AWSCloudFormationFullAccess"),
+                iam.ManagedPolicy.from_aws_managed_policy_name("AWSLambda_FullAccess"),
+                iam.ManagedPolicy.from_aws_managed_policy_name("EC2InstanceProfileForImageBuilderECRContainerBuilds"),
+                iam.ManagedPolicy.from_aws_managed_policy_name("IAMFullAccess")
             ])
 
         #
@@ -111,8 +130,8 @@ class BootstrapStack(cdk.Stack):
         #
         sm.CfnNotebookInstance(
             self,
-            "SfsNotebookInstance",
+            f"{construct_id}-NotebookInstance",
             role_arn=sm_role.role_arn,
             instance_type="ml.t3.large",
-            notebook_instance_name="SfsNotebookInstance",
+            notebook_instance_name=f"{construct_id}-NotebookInstance",
             lifecycle_config_name=lcc.attr_notebook_instance_lifecycle_config_name)
