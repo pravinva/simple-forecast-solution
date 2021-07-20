@@ -189,6 +189,10 @@ def panel_launch_forecast(state):
         # aggregate the forecasts
         raw_results = [f.result() for f in futures.as_completed(wait_for)]
 
+        print(raw_results[0])
+        print(raw_results[5])
+        print(raw_results[99])
+
         pred_lst = []
         results_lst = []
 
@@ -450,9 +454,9 @@ def panel_forecast_summary(state):
     acc_naive = (1 - sr_err_naive.err_mean) * 100.
 
     with _cols[2]:
-        st.markdown("#### Forecast Accuracy")
+        st.markdown("#### Overall Accuracy")
         st.markdown(
-            f"<span style='font-size:36pt;font-weight:bold'>{acc:.0f}%</span><br/>"
+            f"<div style='font-size:36pt;font-weight:bold'>{acc:.0f}%</div>"
             f"({acc - acc_naive:.0f}% increase vs. naive)", unsafe_allow_html=True)
 
     return
@@ -884,10 +888,11 @@ def make_dataframes(state, wait_for):
 
     # results dataframe
     df_results = pd.concat(results_lst) \
-                   .reset_index(drop=True) \
-                   .query("channel.notnull() and "
-                          "family.notnull() and "
-                          "item_id.notnull()")
+                   .reset_index(drop=True)
+
+    assert(df_results is not None)
+
+    state.df_results = df_results
 
     # predictions dataframe
     state.df_pred = pd.concat(pred_lst)
@@ -901,6 +906,19 @@ def make_dataframes(state, wait_for):
 
     state.df_hist = state.df_pred.query("type == 'actual'")
 
+#   groups = state.df_hist.groupby(GROUP_COLS, as_index=False)
+#   n_top = min(groups.ngroups, 10)
+#   n_top = groups.ngroups
+
+#   df_top = groups.agg({"demand": sum}) \
+#                 .sort_values(by="demand", ascending=True) \
+#                 .head(n_top) \
+#                 .reset_index(drop=True)
+
+#   df_top = df_top.assign(_index=np.arange(n_top)+1).set_index("_index")
+
+#   state.df_top = df_top
+
     return state
 
 
@@ -913,12 +931,18 @@ def make_df_top(state):
     n_top = groups.ngroups
 
     df_top = groups.agg({"demand": sum}) \
-                  .sort_values(by="demand", ascending=True) \
+                  .sort_values(by="demand", ascending=False) \
                   .head(n_top) \
                   .reset_index(drop=True)
 
-    #df_top["cumsum"] = df_top["demand"].cumsum()
-    #df_top["perc"] = (df_top["demand"] / df_top["cumsum"] * 100).round(0)
+    df_top["perc"] = (df_top["demand"] / df_top["demand"].sum() * 100).round(2)
+    df_top["cperc"] = df_top["perc"].cumsum().round(1)
+    df_top = df_top.merge(
+        state.df_results.query("rank==1")[["channel", "family", "item_id", "smape_mean"]],
+            on=["channel", "family", "item_id"], how="left")
+
+    #print(df_top)
+    #df_top = df_top.assign(_index=np.arange(n_top)+1).set_index("_index")
 
     df_top.sort_values(by="demand", ascending=False, inplace=True)
 
@@ -1076,14 +1100,29 @@ if __name__ == "__main__":
         with st.beta_expander("4 – Forecast Summary", expanded=True):
             panel_forecast_summary(state)
 
-        with st.beta_expander("X - Results Explorer", expanded=True):
+        with st.beta_expander("5 - Results Explorer", expanded=True):
             make_df_top(state)
-            st.dataframe(state.df_top)
+            _cols = st.beta_columns([2,1])
 
-        with st.beta_expander("5 – Visualize Forecast", expanded=True):
+            with _cols[0]:
+                slider_value = \
+                    st.slider("Demand", step=5, value=80, format="%d%%")
+
+            df_top_subset = state.df_top.query(f"cperc <= {slider_value:f}")
+
+            with _cols[1]:
+                acc = np.round((1 - df_top_subset["smape_mean"].mean()) * 100, 0)
+                st.markdown("#### Forecast Accuracy")
+                st.markdown(
+                    f"<span style='font-size:36pt;font-weight:bold'>{acc:.0f}%</span><br/>",
+                    unsafe_allow_html=True)
+
+            st.dataframe(df_top_subset)
+
+        with st.beta_expander("6 – Visualize Forecast", expanded=True):
             panel_visualization(state)
 
-        with st.beta_expander("6 – Downloads", expanded=True):
+        with st.beta_expander("7 – Downloads", expanded=True):
             panel_downloads(state)
 
     state.sync()
