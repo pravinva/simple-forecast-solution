@@ -20,7 +20,7 @@ set -e
 initctl restart jupyter-server --no-wait
 
 # Get the notebook URL
-DASHBOARD_URL=https://$(aws sagemaker describe-notebook-instance \
+DASHBOARD_URL=$(aws sagemaker describe-notebook-instance \
     --notebook-instance-name {notebook_instance_name} \
     --query "Url" \
     --output text)/proxy/8501/
