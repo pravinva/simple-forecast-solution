@@ -25,21 +25,45 @@ from aws_cdk import (
 #
 LCC_ONSTART_STR = r"""#!/bin/bash
 set -e
-export LC_ALL=en_US.utf-8 && export LANG=en_US.utf-8
-source /home/ec2-user/anaconda3/bin/activate JupyterSystemEnv
 initctl restart jupyter-server --no-wait
 
-# Start your streamlit app here
-streamlit hello &
+#
+# Start SFS dashboard in the background
+#
+conda activate sfs
+# streamlit hello &
 """
 
 LCC_ONCREATE_STR = r"""#!/bin/bash
 set -e
+export LC_ALL=en_US.utf-8 && export LANG=en_US.utf-8
+
+#
+# Install SFS
+#
+conda create -n sfs python=3.8.10 nodejs=14.17.3
+conda activate sfs
+
+# Install the dashboard
+git clone https://github.com/aws-samples/simple-forecast-solution.git
+cd ./simple-forecast-solution
+pip install -e .
+
+# Install the SfsLambdaMapStack
+cd ./sfs/lambdamap/lambdamap_cdk
+pip install -r ./requirements.txt
+
+# The lambdamap function docker image needs sfs installed
+cdk deploy \
+    --context stack_name=SfsLambdaMapStack \
+    --context function_name=SfsLambdaMapFunction \
+    --context extra_cmds='pip install git+https://github.com/aws-samples/simple-forecast-solution.git#egg=sfs'
+
+#
+# Upgrade jupyter-server-proxy
+#
 source /home/ec2-user/anaconda3/bin/activate JupyterSystemEnv
 
-conda install -y nodejs=14
-
-pip install streamlit
 pip uninstall --yes nbserverproxy || true
 pip install --upgrade jupyter-server-proxy
 
