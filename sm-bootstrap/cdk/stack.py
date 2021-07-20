@@ -57,6 +57,10 @@ git clone --recurse-submodules https://github.com/aws-samples/simple-forecast-so
 cd ./simple-forecast-solution
 pip install -q -e .
 
+# Copy the landing page to the user SFS workspace
+cp -rp ./sm-bootstrap/SFS_Landing_Page.ipynb /home/ec2-user/SageMaker/
+chmod a+rwx /home/ec2-user/SageMaker/SFS_Landing_Page.ipynb
+
 # Install the lambdamap python library
 cd ./sfs/lambdamap/
 pip install -q -e .
@@ -82,8 +86,7 @@ source /home/ec2-user/anaconda3/bin/activate JupyterSystemEnv
 pip uninstall -q --yes nbserverproxy || true
 pip install -q --upgrade jupyter-server-proxy
 
-su - ec2-user
-mkdir -p /home/ec2-user/SageMaker/output/
+sudo -u ec2-user mkdir -p /home/ec2-user/SageMaker/output/
 """
 
 # This is the lambda that sends the notification email to the user once
