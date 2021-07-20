@@ -29,6 +29,7 @@ from streamlit.uploaded_file_manager import UploadedFile
 
 ST_STATIC_PATH = pathlib.Path(st.__path__[0]).joinpath("static")
 ST_DOWNLOADS_PATH = ST_STATIC_PATH.joinpath("downloads")
+LAMBDAMAP_FUNC = "SfsLambdaMapFunction"
 
 if not os.path.exists(ST_DOWNLOADS_PATH):
     ST_DOWNLOADS_PATH.mkdir()
@@ -134,7 +135,7 @@ def run_lambdamap(df, horiz, freq):
              "kwargs": {"obj_metric": "smape_mean", "cv_stride": 2}})
 
     executor = StreamlitExecutor(max_workers=min(1000, len(payloads)),
-                                 lambda_arn="LambdaMapFunction")
+                                 lambda_arn=LAMBDAMAP_FUNC)
     wait_for = executor.map(run_cv_select, payloads)
 
     return wait_for
@@ -727,8 +728,6 @@ def page_view_report(state):
             df_model_dist = df_model_dist.query("perc > 0")
             labels = df_model_dist["model_type"].values
             values = df_model_dist["perc"].values
-
-            print(df_model_dist)
 
             fig = go.Figure(data=[go.Pie(labels=labels, values=values, hole=0.5)])
             fig.update(layout_showlegend=False)

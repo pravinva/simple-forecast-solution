@@ -18,9 +18,6 @@ LAMBDAMAP_CDK_PATH = os.path.join(PWD, "../sfs/lambdamap/")
 assert(os.path.exists(LAMBDAMAP_CDK_PATH))
 sys.path.append(LAMBDAMAP_CDK_PATH)
 
-from lambdamap_cdk.stack.stack import LambdaMapStack
-
 app = core.App()
 BootstrapStack(app, "SfsBootstrapStack")
-LambdaMapStack(app, "SfsLambdaMapStack", function_name="SfsLambdaMapFunction")
 app.synth()
