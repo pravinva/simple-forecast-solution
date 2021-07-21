@@ -956,16 +956,19 @@ def make_df_top(state):
                   .head(n_top) \
                   .reset_index(drop=True)
 
-    df_top["perc"] = (df_top["demand"] / df_top["demand"].sum() * 100).round(2)
+    df_top["perc"] = (df_top["demand"] / df_top["demand"].sum() * 100).round(0)
     df_top["cperc"] = df_top["perc"].cumsum().round(1)
     df_top = df_top.merge(
         state.df_results.query("rank==1")[["channel", "family", "item_id", "smape_mean"]],
             on=["channel", "family", "item_id"], how="left")
 
+    df_top["accuracy"] = ((1 - df_top["smape_mean"]) * 100.).round(0)
+
     #print(df_top)
-    #df_top = df_top.assign(_index=np.arange(n_top)+1).set_index("_index")
+    df_top = df_top.assign(_index=np.arange(n_top)+1).set_index("_index")
 
     df_top.sort_values(by="demand", ascending=False, inplace=True)
+    df_top.rename({"perc": "% of total demand"}, axis=1, inplace=True)
 
     state.df_top = df_top
 
@@ -1195,25 +1198,33 @@ if __name__ == "__main__":
 
         with st.beta_expander("5 - Top Performers", expanded=True):
             make_df_top(state)
-            _cols = st.beta_columns(3)
+            _cols = st.beta_columns([2,1])
+
+#           with _cols[0]:
+#               st.selectbox("View By", ["item_id", "channel", "family"])
 
             with _cols[0]:
-                st.selectbox("View By", ["item_id", "channel", "family"])
+                slider_value = \
+                    st.slider("% of total demand", step=5, value=80, format="%d%%")
+
+            df_top_subset = state.df_top.query(f"cperc <= {slider_value:f}") \
+                    | px.loc[:,["item_id", "demand", "% of total demand", "accuracy"]]
 
             with _cols[1]:
-                slider_value = \
-                    st.slider("Demand", step=5, value=80, format="%d%%")
-
-            df_top_subset = state.df_top.query(f"cperc <= {slider_value:f}")
-
-            with _cols[2]:
-                acc = np.round((1 - df_top_subset["smape_mean"].mean()) * 100, 0)
+                acc = df_top_subset["accuracy"].mean()
                 st.markdown("#### Forecast Accuracy")
-                st.markdown(
-                    f"<span style='font-size:36pt;font-weight:bold'>{acc:.0f}%</span><br/>",
-                    unsafe_allow_html=True)
 
-            st.dataframe(df_top_subset)
+                if pd.isnull(acc):
+                    pass
+                else:
+                    st.markdown(
+                        f"<span style='font-size:36pt;font-weight:bold'>{acc:.0f}%</span><br/>",
+                        unsafe_allow_html=True)
+
+            st.dataframe(df_top_subset.head(10))
+            
+            if df_top_subset.shape[0] > 10:
+                st.markdown("_Truncated – Top 10 Only_")
 
         with st.beta_expander("6 – Visualize Forecast", expanded=True):
             panel_visualization(state)
