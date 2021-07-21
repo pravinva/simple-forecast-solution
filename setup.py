@@ -14,7 +14,8 @@ setuptools.setup(
         "stqdm",
         "cloudpickle==1.6.0",
         "plotly",
-        "awswrangler"
+        "awswrangler",
+        "sspipe"
     ],
     python_requires=">=3.8",
     classifiers=[

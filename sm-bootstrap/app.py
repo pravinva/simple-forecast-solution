@@ -10,20 +10,23 @@ from aws_cdk import core as cdk
 # being updated to use `cdk`.  You may delete this import if you don't need it.
 from aws_cdk import core
 
-from cdk.stack import BootstrapStack
+from cdk.stack import SfsStack
+from cdk.afc_stack import AfcStack
 
 PWD = os.path.dirname(os.path.realpath(__file__))
-LAMBDAMAP_CDK_PATH = os.path.join(PWD, "../sfs/lambdamap/")
-
-assert(os.path.exists(LAMBDAMAP_CDK_PATH))
-sys.path.append(LAMBDAMAP_CDK_PATH)
 
 app = core.App()
 
-stack_name = app.node.try_get_context("stack_name")
+boot_stack_name = app.node.try_get_context("sfs_stack_name")
+afc_stack_name = app.node.try_get_context("afc_stack_name")
 
-if stack_name is None:
-    stack_name = "SfsBootStack"
+if boot_stack_name is None:
+    boot_stack_name = "SfsStack"
 
-BootstrapStack(app, stack_name)
+if afc_stack_name is None:
+    afc_stack_name = "Afc"
+
+boot_stack = SfsStack(app, boot_stack_name)
+AfcStack(boot_stack, afc_stack_name)
+
 app.synth()

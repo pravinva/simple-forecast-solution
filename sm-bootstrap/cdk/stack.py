@@ -1,7 +1,8 @@
 from aws_cdk import core as cdk
 
 from aws_cdk import (
-    aws_ec2 as ec2,
+    aws_s3 as s3,
+    aws_ssm as ssm,
     aws_iam as iam,
     aws_sagemaker as sm,
     aws_sns as sns,
@@ -127,21 +128,45 @@ def lambda_handler(event, context):
 """
 
 
-class BootstrapStack(cdk.Stack):
+class SfsStack(cdk.Stack):
     def __init__(self, scope: cdk.Construct, construct_id: str, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
         email_address = core.CfnParameter(self, "emailAddress")
-        instance_type = core.CfnParameter(self, "instanceType")
+        instance_type = core.CfnParameter(self, "instanceType",
+                default="ml.t3.large")
+
+        #
+        # S3 Bucket
+        #
+        bucket = s3.Bucket(self, "SfsBucket", auto_delete_objects=True,
+            removal_policy=core.RemovalPolicy.DESTROY,
+            bucket_name=f"{construct_id.lower()}-{self.account}-{self.region}")
+
+        #
+        # SSM Parameter Store
+        #
+        ssm_s3_input_path_param = ssm.StringParameter(self,
+                "SfsSsmS3InputPath",
+                string_value=f"s3://{bucket.bucket_name}/input/",
+                parameter_name="SfsS3InputPath")
+
+        ssm_s3_output_path_param = ssm.StringParameter(self,
+                "SfsSsmS3OutputPath",
+                string_value=f"s3://{bucket.bucket_name}/output/",
+                parameter_name="SfsS3OutputPath")
 
         #
         # SNS topic for email notification
         #
-        topic = sns.Topic(self, f"{construct_id}-NotificationTopic",
+        topic = \
+            sns.Topic(self, f"{construct_id}-NotificationTopic",
                 topic_name=f"{construct_id}-NotificationTopic")
 
         topic.add_subscription(
             subscriptions.EmailSubscription(email_address.value_as_string))
+
+        self.topic = topic
 
         sns_lambda_role = iam.Role(
             self,
@@ -150,6 +175,8 @@ class BootstrapStack(cdk.Stack):
             managed_policies=[
                 iam.ManagedPolicy.from_aws_managed_policy_name("AmazonSNSFullAccess")
             ])
+
+        self.sns_lambda_role = sns_lambda_role
 
         sns_lambda = lambda_.Function(self, f"{construct_id}-SnsEmailLambda",
             runtime=lambda_.Runtime.PYTHON_3_8,

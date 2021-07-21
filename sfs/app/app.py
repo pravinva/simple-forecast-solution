@@ -1,24 +1,44 @@
 # vim: set fdm=indent:
+'''
+ ___ _            _             
+/ __(_)_ __  _ __| |___         
+\__ \ | '  \| '_ \ / -_)        
+|___/_|_|_|_| .__/_\___|        
+ ___        |_|            _    
+| __|__ _ _ ___ __ __ _ __| |_  
+| _/ _ \ '_/ -_) _/ _` (_-<  _| 
+|_|\___/_| \___\__\__,_/__/\__| 
+ ___      _      _   _          
+/ __| ___| |_  _| |_(_)___ _ _  
+\__ \/ _ \ | || |  _| / _ \ ' \ 
+|___/\___/_|\_,_|\__|_\___/_||_|
+
+https://github.com/aws-samples/simple-forecat-solution/
+                                 
+'''
 import os
 import sys
 import glob
 import time
 import datetime
-import uuid
 import base64
 import pathlib
 import textwrap
 import argparse
+import re
+import json
 
+import boto3
 import numpy as np
 import pandas as pd
 import awswrangler as wr
 import streamlit as st
-import plotly.express as px
+import plotly.express as pex
 import plotly.graph_objects as go
 
 from collections import OrderedDict
 from concurrent import futures
+from sspipe import p, px
 from stqdm import stqdm
 from SessionState import get_state
 from sfs import (load_data, resample, run_pipeline, run_cv_select,
@@ -36,6 +56,7 @@ if not os.path.exists(ST_DOWNLOADS_PATH):
     ST_DOWNLOADS_PATH.mkdir()
 
 FREQ_MAP = OrderedDict(Daily="D", Weekly="W-MON", Monthly="MS")
+FREQ_MAP_AFC = OrderedDict(Daily="D", Weekly="W", Monthly="M")
 
 
 def validate(df):
@@ -268,7 +289,7 @@ def panel_visualization(state):
     if len(df_plot) > 0:
 
         # display the line chart
-        #fig = px.line(df_plot, x="timestamp", y="demand", color="type")
+        #fig = pex.line(df_plot, x="timestamp", y="demand", color="type")
 
         y = df_plot.query("type == 'actual'")["demand"]
         y_ts = df_plot.query("type == 'actual'")["timestamp"]
@@ -389,7 +410,7 @@ def panel_health_check(state):
         with _cols[2]:
             st.markdown("#### Timeseries Lengths")
 
-            fig = px.box(df_health, x="demand_nonnull_count", height=160)
+            fig = pex.box(df_health, x="demand_nonnull_count", height=160)
             fig.update_layout(
                 margin={"t": 5, "b": 0, "r": 0, "l": 0},
                 xaxis_title=duration_str,
@@ -773,7 +794,7 @@ def page_view_report(state):
             if len(df_plot) > 0:
 
                 # display the line chart
-                #fig = px.line(df_plot, x="timestamp", y="demand", color="type")
+                #fig = pex.line(df_plot, x="timestamp", y="demand", color="type")
 
                 y = df_plot.query("type == 'actual'")["demand"]
                 y_ts = df_plot.query("type == 'actual'")["timestamp"]
@@ -850,7 +871,7 @@ def page_view_report(state):
 #            #
 #            # Display the chart
 #            #
-#            fig = px.line(df, x="timestamp", y="demand", color="type")
+#            fig = pex.line(df, x="timestamp", y="demand", color="type")
 #
 #    #       #fig.add_vline(x="2016-01-01", line_width=1, line_dash="dot")
 #    #       #fig.add_vline(x="2017-01-01", line_width=1, line_dash="dot")
@@ -951,6 +972,76 @@ def make_df_top(state):
     return
 
 
+def run_afc_state_machine(state):
+    """Execute the Amazon Forecast state machine.
+
+    """
+    PD_TIMESTAMP_FMT = "%Y-%m-%d"
+    AFC_TIMESTAMP_FMT = "yyyy-MM-dd"
+    AFC_FORECAST_HORIZON = state.horiz_afc
+    AFC_FORECAST_FREQUENCY = FREQ_MAP_AFC[state.freq_out_afc]
+
+    # state.df is already resampled to same frequency as the forecast freq.
+    AFC_DATASET_FREQUENCY = AFC_FORECAST_FREQUENCY
+
+    state_machine_arn = None
+
+    # generate a unique prefix for the Amazon Forecast resources
+    now_str = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+    prefix = f"SfsAfc{now_str}"
+
+    # get the state machine arn and s3 paths
+    ssm_client = boto3.client("ssm")
+    state_machine_arn = \
+        ssm_client.get_parameter(Name="SfsAfcStateMachineArn")["Parameter"]["Value"]
+    s3_input_path = \
+        ssm_client.get_parameter(Name="SfsS3InputPath")["Parameter"]["Value"].rstrip("/")
+    s3_output_path = \
+        ssm_client.get_parameter(Name="SfsS3OutputPath")["Parameter"]["Value"].rstrip("/")
+
+    # generate amazon forecast compatible data
+    with st.spinner("Launching Amazon Forecast Job"):
+        df_afc = state.df \
+            | px.reset_index() \
+            | px.rename({"index": "timestamp"}, axis=1) \
+            | px.assign(item_id=px["channel"] + "@@" + px["family"] + "@@" + px["item_id"]) \
+            | px[["timestamp", "demand", "item_id"]] \
+            | px.sort_values(by=["item_id", "timestamp"])
+
+        df_afc["timestamp"] = \
+            pd.DatetimeIndex(df_afc["timestamp"]).strftime("%Y-%m-%d") 
+        afc_input_fn = \
+            re.sub("(.csv.gz)", ".csv", os.path.basename(state.uploaded_file_name))
+        s3_input_path = f"{s3_input_path}/{afc_input_fn}"
+
+        # upload the input csv to s3
+        wr.s3.to_csv(df_afc, s3_input_path, index=False)
+
+        # upload local re-sampled csv file to s3 input path
+        client = boto3.client("stepfunctions")
+        resp = client.start_execution(
+            stateMachineArn=state_machine_arn,
+            input=json.dumps({
+                "prefix": prefix,
+                "data_freq": AFC_DATASET_FREQUENCY,
+                "horiz": AFC_FORECAST_HORIZON,
+                "freq": AFC_FORECAST_FREQUENCY,
+                "s3_path": s3_input_path,
+                "s3_export_path": s3_output_path
+            })
+        )
+
+    return resp["executionArn"]
+
+
+def refresh_afc_state_machine_status(state):
+    """
+    """
+    client = boto3.client("stepfunctions")
+    resp = client.describe_execution(executionArn=state.execution_arn)
+    return resp["status"]
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--local-file-dir", type=str,
@@ -1047,25 +1138,27 @@ if __name__ == "__main__":
             panel_health_check(state)
 
     if state.is_valid_file and state.df is not None:
-        with st.beta_expander("3 – Configure & Launch Forecast"):
-            with st.beta_container():
-                _cols = st.beta_columns(3)
+        with st.beta_expander("3 – Configure & Launch Forecast", expanded=True):
+            st.markdown("")
 
-                with _cols[0]:
-                    state.horiz = st.number_input("Horizon Length", value=1, min_value=1)
+            with st.form("sfs_form"):
+                with st.beta_container():
+                    _cols = st.beta_columns(3)
 
-                with _cols[1]:
-                    state.freq_out = \
-                        st.selectbox("Forecast Frequency",
-                            list(FREQ_MAP.keys()),
-                            list(FREQ_MAP.keys()).index(state.freq_out) if state.freq_out else 0)
+                    with _cols[0]:
+                        state.horiz = st.number_input("Horizon Length", value=1, min_value=1)
 
-                with _cols[2]:
-                    state.backend = \
-                        st.selectbox("Compute Backend", ["AWS Lambda", "Local"], 0)
+                    with _cols[1]:
+                        state.freq_out = \
+                            st.selectbox("Forecast Frequency",
+                                list(FREQ_MAP.keys()),
+                                list(FREQ_MAP.keys()).index(state.freq_out) if state.freq_out else 0)
 
-                launch_button = st.button("Launch")
+                    with _cols[2]:
+                        state.backend = \
+                            st.selectbox("Compute Backend", ["AWS Lambda", "Local"], 0)
 
+                    launch_button = st.form_submit_button("Launch")
     #
     # Launch a forecast job
     #
@@ -1124,5 +1217,42 @@ if __name__ == "__main__":
 
         with st.beta_expander("7 – Downloads", expanded=True):
             panel_downloads(state)
+
+    #
+    # Amazon Forecast Panel
+    #
+    if state.is_valid_file and state.df is not None:
+        with st.beta_expander("8 - Amazon Forecast (optional)"):
+            st.markdown("")
+            with st.form("afc_form"):
+                _cols = st.beta_columns(3)
+
+                with _cols[0]:
+                    state.horiz_afc = \
+                        st.number_input("Horizon Length",
+                                        key="afc_horiz_input",
+                                        value=1, min_value=1)
+
+                with _cols[1]:
+                    state.freq_out_afc = \
+                        st.selectbox("Forecast Frequency",
+                            list(FREQ_MAP_AFC.keys()),
+                            list(FREQ_MAP_AFC.keys()).index(state.freq_out_afc) if state.freq_out_afc else 0,
+                            key="afc_freq_input")
+
+                with _cols[2]:
+                    st.selectbox("Algorithm", ["AutoML"], 0, key="afc_algo_input")
+
+                afc_form_button = st.form_submit_button("Launch")
+
+            # Launch Amazon Forecast job
+            if afc_form_button:
+                state.execution_arn = run_afc_state_machine(state)
+
+            afc_refresh_button = st.button("Refresh Job Status")
+
+            if state.execution_arn or afc_refresh_button:
+                afc_job_status = refresh_afc_state_machine_status(state)
+                st.markdown(f"Job Status: **{afc_job_status}**")
 
     state.sync()
