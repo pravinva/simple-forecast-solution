@@ -38,9 +38,14 @@ aws lambda invoke --function-name {sns_lambda_function} \
 #
 # Start SFS dashboard in the background
 #
+su - ec2-user
+pwd
+/home/ec2-user/anaconda3/bin/conda create -q -n sfs python=3.8.10
 source /home/ec2-user/anaconda3/bin/activate sfs
+git clone https://github.com/aws-samples/simple-forecast-solution.git
 cd ./simple-forecast-solution/
-streamlit run ./sfs/app/app.py --local-file-dir /home/ec2-user/SageMaker &
+pip install -q -e .
+nohup streamlit run ./sfs/app/app.py --local-file-dir /home/ec2-user/SageMaker/ &
 """
 
 # This is run *once* ever, upon the *creation* of the notebook
@@ -58,7 +63,7 @@ source /home/ec2-user/anaconda3/bin/activate sfs
 # Install the dashboard
 git clone https://github.com/aws-samples/simple-forecast-solution.git
 cd ./simple-forecast-solution
-pip install -q -e .
+#pip install -q -e .
 
 # Copy the landing page to the user SFS workspace
 cp -rp ./sm-bootstrap/SFS_Landing_Page.ipynb /home/ec2-user/SageMaker/
