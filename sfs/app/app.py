@@ -1071,7 +1071,7 @@ if __name__ == "__main__":
     st.title("Create Forecasts")
     st.markdown("")
 
-    with st.beta_expander("0 – Prepare Data", expanded=True):
+    with st.beta_expander("0 – Prepare Data"):
         panel_prepare_data(state)
 
     with st.beta_expander("1 – Load & Validate Data", expanded=True):
