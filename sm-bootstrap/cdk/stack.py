@@ -79,7 +79,7 @@ pip install -q -r ./requirements.txt
 cdk deploy --require-approval never \
     --context stack_name={sfs_lambdamap_stack_name} \
     --context function_name=SfsLambdaMapFunction \
-    --context extra_cmds='pip install -q git+https://github.com/aws-samples/simple-forecast-solution.git#egg=sfs' &
+    --context extra_cmds='pip install -q git+https://github.com/aws-samples/simple-forecast-solution.git#egg=sfs'
 
 #
 # Upgrade jupyter-server-proxy
