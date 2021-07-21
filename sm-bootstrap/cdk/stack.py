@@ -40,7 +40,7 @@ aws lambda invoke --function-name {sns_lambda_function} \
 #
 source /home/ec2-user/anaconda3/bin/activate sfs
 cd ./simple-forecast-solution/
-streamlit run ./sfs/app/app.py &
+streamlit run ./sfs/app/app.py --local-file-dir /home/ec2-user/SageMaker &
 """
 
 # This is run *once* ever, upon the *creation* of the notebook

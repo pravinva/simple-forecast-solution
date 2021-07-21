@@ -404,8 +404,8 @@ def panel_health_check(state):
             st.markdown("#### Timespan")
             st.text(f"Duration:\t{duration.n} {duration_str}\n"
                     f"First date:\t{first_date}\n"
-                    f"Last date:\t{last_date}\n"
-                    f"% missing:\t{int(np.round(pc_missing*100,0))}")
+                    f"Last date:\t{last_date}\n")
+                    #f"% missing:\t{int(np.round(pc_missing*100,0))}")
 
         with _cols[2]:
             st.markdown("#### Timeseries Lengths")
@@ -1212,7 +1212,7 @@ if __name__ == "__main__":
 
             with _cols[1]:
                 acc = df_top_subset["accuracy"].mean()
-                st.markdown("#### Forecast Accuracy")
+                st.markdown("#### Avg. Accuracy")
 
                 if pd.isnull(acc):
                     pass
