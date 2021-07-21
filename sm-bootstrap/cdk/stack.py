@@ -55,7 +55,7 @@ source /home/ec2-user/anaconda3/bin/activate JupyterSystemEnv
 source /home/ec2-user/anaconda3/bin/activate sfs
 
 # Install the dashboard
-git clone --recurse-submodules https://github.com/aws-samples/simple-forecast-solution.git
+git clone https://github.com/aws-samples/simple-forecast-solution.git
 cd ./simple-forecast-solution
 pip install -q -e .
 
@@ -63,22 +63,23 @@ pip install -q -e .
 cp -rp ./sm-bootstrap/SFS_Landing_Page.ipynb /home/ec2-user/SageMaker/
 chmod a+rwx /home/ec2-user/SageMaker/SFS_Landing_Page.ipynb
 
-# Install the lambdamap python library
-cd ./sfs/lambdamap/
-pip install -q -e .
-
 # Install aws-cdk
 curl -sL https://rpm.nodesource.com/setup_14.x | bash - \
     && yum install -y nodejs \
     && npm install -g aws-cdk@1.114.0
 
 # Install the SfsLambdaMapStack
+git clone https://github.com/aws-samples/lambdamap.git
+
+cd ./lambdamap/
+pip install -q -e .
+
 cd ./lambdamap_cdk/
 pip install -q -r ./requirements.txt
 cdk deploy --require-approval never \
     --context stack_name={sfs_lambdamap_stack_name} \
     --context function_name=SfsLambdaMapFunction \
-    --context extra_cmds='pip install -q git+https://github.com/aws-samples/simple-forecast-solution.git#egg=sfs'
+    --context extra_cmds='pip install -q git+https://github.com/aws-samples/simple-forecast-solution.git#egg=sfs' &
 
 #
 # Upgrade jupyter-server-proxy
@@ -201,7 +202,7 @@ class SfsStack(cdk.Stack):
             sm.CfnNotebookInstanceLifecycleConfig \
               .NotebookInstanceLifecycleHookProperty(
                   content=core.Fn.base64(LCC_ONCREATE_STR.format(
-                      sfs_lambdamap_stack_name=f"{construct_id}-SfsLambdaMapStack")))
+                      sfs_lambdamap_stack_name=f"{construct_id}-LambdaMapStack")))
 
         lcc = sm.CfnNotebookInstanceLifecycleConfig(
             self,

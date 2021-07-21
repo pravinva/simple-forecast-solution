@@ -27,6 +27,13 @@ import textwrap
 
 def lambda_handler(event, context):
     payload = event["input"]["Payload"]
+
+    # get s3 location of the exports
+    afc_client = boto3.client("forecast")
+    resp = afc_client.describe_forecast_export_job(
+        ForecastExportJobArn=payload["ForecastExportJobArn"])
+    s3_path = resp["Destination"]["S3Config"]["Path"]
+
     client = boto3.client("sns")
 
     response = client.publish(
@@ -38,7 +45,7 @@ def lambda_handler(event, context):
         Your Amazon Forecast job has completed.
 
         The raw forecast files can be downloaded from the S3 path below:
-        ‣ {payload["Destination"]["S3Config"]["Path"]}
+        ‣ {s3_path}
 
 
         Sincerely,
@@ -68,7 +75,8 @@ class AfcStack(cdk.Stack):
                 iam.ManagedPolicy.from_aws_managed_policy_name("AmazonForecastFullAccess"),
                 iam.ManagedPolicy.from_aws_managed_policy_name("AmazonS3FullAccess"),
                 iam.ManagedPolicy.from_aws_managed_policy_name("AWSLambda_FullAccess"),
-                iam.ManagedPolicy.from_aws_managed_policy_name("CloudWatchLogsFullAccess")
+                iam.ManagedPolicy.from_aws_managed_policy_name("CloudWatchLogsFullAccess"),
+                iam.ManagedPolicy.from_aws_managed_policy_name("AmazonSNSFullAccess")
             ])
 
         fail_state = sfn.Fail(self, "Fail")
@@ -208,7 +216,7 @@ class AfcStack(cdk.Stack):
             environment={"TOPIC_ARN": scope.topic.topic_arn},
             code=lambda_.Code.from_inline(SNS_EMAIL_LAMBDA_INLINE),
             handler="index.lambda_handler",
-            role=scope.sns_lambda_role)
+            role=afc_role)
 
         sns_email_step = \
             tasks.LambdaInvoke(

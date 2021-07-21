@@ -24,7 +24,7 @@ if boot_stack_name is None:
     boot_stack_name = "SfsStack"
 
 if afc_stack_name is None:
-    afc_stack_name = "Afc"
+    afc_stack_name = "AfcStack"
 
 boot_stack = SfsStack(app, boot_stack_name)
 AfcStack(boot_stack, afc_stack_name)

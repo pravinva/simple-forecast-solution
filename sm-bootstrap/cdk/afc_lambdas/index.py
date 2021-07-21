@@ -178,6 +178,5 @@ def create_forecast_export_handler(event, context):
 
     resp_out = payload
     resp_out["ForecastExportJobArn"] = resp["ForecastExportJobArn"]
-    resp_out["Destination"] = resp["Destination"]
 
     return resp_out

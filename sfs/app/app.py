@@ -1193,17 +1193,20 @@ if __name__ == "__main__":
         with st.beta_expander("4 – Forecast Summary", expanded=True):
             panel_forecast_summary(state)
 
-        with st.beta_expander("5 - Results Explorer", expanded=True):
+        with st.beta_expander("5 - Top Performers", expanded=True):
             make_df_top(state)
-            _cols = st.beta_columns([2,1])
+            _cols = st.beta_columns(3)
 
             with _cols[0]:
+                st.selectbox("View By", ["item_id", "channel", "family"])
+
+            with _cols[1]:
                 slider_value = \
                     st.slider("Demand", step=5, value=80, format="%d%%")
 
             df_top_subset = state.df_top.query(f"cperc <= {slider_value:f}")
 
-            with _cols[1]:
+            with _cols[2]:
                 acc = np.round((1 - df_top_subset["smape_mean"].mean()) * 100, 0)
                 st.markdown("#### Forecast Accuracy")
                 st.markdown(
