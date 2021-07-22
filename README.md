@@ -3,6 +3,10 @@
 ![](https://img.shields.io/badge/license-MIT--0-green)
 ![](https://img.shields.io/github/workflow/status/aws-samples/simple-forecast-solution/pytest/main)
 
+# :construction: Currently Refactoring :construction:
+
+Hi there! refactoring of SFS is nearly complete, please watch this space!
+
 ## Installation
 
 ### _Prerequisite_ – Install `npm` and `aws-cdk`
