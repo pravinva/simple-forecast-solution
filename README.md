@@ -13,19 +13,24 @@ curl -L https://git.io/n-install | bash
 source ~/.bashrc
 
 # Install aws-cdk
-npm i -g aws-cdk
+npm i -g aws-cdk@1.114.0
 ```
 
 ### _Prerequisite_ – Install `lambdamap`
 
 ```bash
-# Install the lambdamap Python library
-cd ./sfs/lambdamap
-pip3 install -e .
+# Clone the lambdamap repository
+git clone https://github.com/aws-samples/lambdamap.git
+cd ./lambdamap/
+pip install -q -e .
 
-# Deploy the lambdamap cloudformation stack
-cd lambdamap/cdk
-cdk deploy -c folder=../../container
+cd ./lambdamap_cdk/
+pip install -q -r ./requirements.txt
+
+# Deploy the lambdamap stack
+cdk deploy \
+    --context function_name=SfsLambdaMapFunction \
+    --context extra_cmds='pip install -q git+https://github.com/aws-samples/simple-forecast-solution.git#egg=sfs'
 ```
 
 ### Install SFS
@@ -39,10 +44,15 @@ cd simple-forecast-solution
 pip3 install -e .
 ```
 
-## Run the app
+## Run the app (locally)
 
 The app will be accessible from your web browser at `http://localhost:8000`
 ```bash
 cd ./sfs/app/
 streamlit run ./app.py
+```
+
+## Run the app (via SageMaker Notebook instance)
+```bash
+# TODO
 ```

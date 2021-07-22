@@ -18,9 +18,8 @@ GROUP_COLS = ["channel", "family", "item_id"]
 OBJ_METRICS = ["smape_mean"]
 
 # these define how long a tail period is for each freq.
-TAIL_LEN = {"D": 56, "W": 12, "W-MON": 12, "M": 3}
-
-DC_PERIODS = {"D": 365, "W": 52, "W-MON": 52, "M": 12}
+TAIL_LEN = {"D": 56, "W": 12, "W-MON": 12, "M": 3, "MS": 3}
+DC_PERIODS = {"D": 365, "W": 52, "W-MON": 52, "M": 12, "MS": 12}
 
 
 #

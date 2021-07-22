@@ -210,10 +210,6 @@ def panel_launch_forecast(state):
         # aggregate the forecasts
         raw_results = [f.result() for f in futures.as_completed(wait_for)]
 
-        print(raw_results[0])
-        print(raw_results[5])
-        print(raw_results[99])
-
         pred_lst = []
         results_lst = []
 
@@ -268,16 +264,23 @@ def panel_visualization(state):
     family_index = family_vals.index(df_top["family"].iloc[0])
     item_id_index = item_id_vals.index(df_top["item_id"].iloc[0])
 
-    _cols = st.beta_columns(3)
+    with st.form("viz_form"):
+        st.markdown("#### Filter By")
+        _cols = st.beta_columns(3)
 
-    with _cols[0]:
-        channel_choice = st.selectbox("Channel", channel_vals, index=channel_index)
+        with _cols[0]:
+            channel_choice = st.selectbox("Channel", channel_vals, index=channel_index)
 
-    with _cols[1]:
-        family_choice = st.selectbox("Family", family_vals, index=family_index)
+        with _cols[1]:
+            family_choice = st.selectbox("Family", family_vals, index=family_index)
 
-    with _cols[2]:
-        item_id_choice = st.selectbox("Item ID", item_id_vals, index=item_id_index)
+        with _cols[2]:
+            item_id_choice = st.selectbox("Item ID", item_id_vals, index=item_id_index)
+
+        viz_form_button = st.form_submit_button("Apply")
+
+    if viz_form_button:
+        pass
 
     results_mask = \
         make_mask(df_results, channel_choice, family_choice, item_id_choice)
@@ -911,6 +914,8 @@ def make_dataframes(state, wait_for):
     df_results = pd.concat(results_lst) \
                    .reset_index(drop=True)
 
+    print(df_results.head())
+
     assert(df_results is not None)
 
     state.df_results = df_results
@@ -926,19 +931,6 @@ def make_dataframes(state, wait_for):
     state.perf_summary = make_perf_summary(state.df_results)
 
     state.df_hist = state.df_pred.query("type == 'actual'")
-
-#   groups = state.df_hist.groupby(GROUP_COLS, as_index=False)
-#   n_top = min(groups.ngroups, 10)
-#   n_top = groups.ngroups
-
-#   df_top = groups.agg({"demand": sum}) \
-#                 .sort_values(by="demand", ascending=True) \
-#                 .head(n_top) \
-#                 .reset_index(drop=True)
-
-#   df_top = df_top.assign(_index=np.arange(n_top)+1).set_index("_index")
-
-#   state.df_top = df_top
 
     return state
 
@@ -1067,8 +1059,11 @@ if __name__ == "__main__":
 
     st.sidebar.title("Amazon Simple Forecast Solution")
     st.sidebar.markdown(textwrap.dedent("""
+
     """))
-    st.title("Create Forecasts")
+
+    st.subheader("Amazon Simple Forecast Solution")
+    st.title("Launch Forecasts :rocket:")
     st.markdown("")
 
     with st.beta_expander("0 – Prepare Data"):
@@ -1142,8 +1137,6 @@ if __name__ == "__main__":
 
     if state.is_valid_file and state.df is not None:
         with st.beta_expander("3 – Configure & Launch Forecast", expanded=True):
-            st.markdown("")
-
             with st.form("sfs_form"):
                 with st.beta_container():
                     _cols = st.beta_columns(3)
@@ -1197,29 +1190,45 @@ if __name__ == "__main__":
             panel_forecast_summary(state)
 
         with st.beta_expander("5 - Top Performers", expanded=True):
+            st.markdown("### Top Performers")
+            st.info("""Calculate the forecast accuracy by **item_id**,
+            **family**, or **channel** according to their percentage of total demand
+            over a given time period.""")
             make_df_top(state)
-            _cols = st.beta_columns([2,1])
 
-#           with _cols[0]:
-#               st.selectbox("View By", ["item_id", "channel", "family"])
+            with st.form("top_perf_form"):
+                _cols = st.beta_columns(3)
 
-            with _cols[0]:
-                slider_value = \
-                    st.slider("% of total demand", step=5, value=80, format="%d%%")
+                with _cols[0]:
+                    st.selectbox("Group By", ["item_id", "channel", "family"])
+
+                with _cols[1]:
+                    st.date_input("Start")
+
+                with _cols[2]:
+                    st.date_input("End")
+
+                _slider_value = \
+                    st.slider("Percentage of total demand", step=5, value=80, format="%d%%", help="Select the percentage of total demand")
+
+                if st.form_submit_button("Apply"):
+                    slider_value = _slider_value
+                else:
+                    slider_value = 80
 
             df_top_subset = state.df_top.query(f"cperc <= {slider_value:f}") \
-                    | px.loc[:,["item_id", "demand", "% of total demand", "accuracy"]]
+                    | px.loc[:,["channel", "family", "item_id", "demand", "% of total demand", "accuracy"]]
 
-            with _cols[1]:
-                acc = df_top_subset["accuracy"].mean()
-                st.markdown("#### Avg. Accuracy")
+#           with _cols[1]:
+#               acc = df_top_subset["accuracy"].mean()
+#               st.markdown("#### Avg. Accuracy")
 
-                if pd.isnull(acc):
-                    pass
-                else:
-                    st.markdown(
-                        f"<span style='font-size:36pt;font-weight:bold'>{acc:.0f}%</span><br/>",
-                        unsafe_allow_html=True)
+#               if pd.isnull(acc):
+#                   pass
+#               else:
+#                   st.markdown(
+#                       f"<span style='font-size:36pt;font-weight:bold'>{acc:.0f}%</span><br/>",
+#                       unsafe_allow_html=True)
 
             st.dataframe(df_top_subset.head(10))
             
@@ -1229,8 +1238,8 @@ if __name__ == "__main__":
         with st.beta_expander("6 – Visualize Forecast", expanded=True):
             panel_visualization(state)
 
-        with st.beta_expander("7 – Downloads", expanded=True):
-            panel_downloads(state)
+#       with st.beta_expander("7 – Downloads", expanded=True):
+#           panel_downloads(state)
 
     #
     # Amazon Forecast Panel

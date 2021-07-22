@@ -18,6 +18,13 @@ from aws_cdk import (
 # This is run *each time* the notebook instance is started
 LCC_ONSTART_STR = """#!/bin/bash
 set -e
+#
+# Upgrade jupyter-server-proxy
+#
+source /home/ec2-user/anaconda3/bin/activate JupyterSystemEnv
+
+pip uninstall -q --yes nbserverproxy || true
+pip install -q --upgrade jupyter-server-proxy
 initctl restart jupyter-server --no-wait
 
 # Get the notebook URL
@@ -38,14 +45,20 @@ aws lambda invoke --function-name {sns_lambda_function} \
 #
 # Start SFS dashboard in the background
 #
-su - ec2-user
-pwd
 /home/ec2-user/anaconda3/bin/conda create -q -n sfs python=3.8.10
 source /home/ec2-user/anaconda3/bin/activate sfs
+
+# Install the SfsLambdaMapStack
+git clone https://github.com/aws-samples/lambdamap.git
+
+cd ./lambdamap/
+pip install -q -e .
+
 git clone https://github.com/aws-samples/simple-forecast-solution.git
 cd ./simple-forecast-solution/
 pip install -q -e .
-nohup streamlit run ./sfs/app/app.py --local-file-dir /home/ec2-user/SageMaker/ &
+
+nohup streamlit run -- ./sfs/app/app.py --local-file-dir /home/ec2-user/SageMaker/ &
 """
 
 # This is run *once* ever, upon the *creation* of the notebook
