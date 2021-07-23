@@ -553,12 +553,12 @@ def make_perf_summary(df_results):
     for use in the UI:
 
     - distribution of model types that were selected for each timeseries
-    - errors for the selected models
+    - errors for the best models
     - errors for the naive models
 
     Returns
     -------
-    pd.DataFrame, pd.Series, pd.Series, float
+    pd.DataFrame, pd.Series, pd.Series
 
     """
     df_best = df_results.query("rank == 1")
@@ -578,7 +578,7 @@ def make_perf_summary(df_results):
                                   .reset_index() \
                                   .rename({"model_type": "freq",
                                            "index": "model_type"}, axis=1),
-                        how="left", on="model_type") \
+                        how="left", on="model_type")
 
     df_model_dist["perc"] = df_model_dist["perc"].fillna(0.) * 100.
     df_model_dist["freq"] = df_model_dist["freq"].fillna(0.)
@@ -594,23 +594,20 @@ def make_perf_summary(df_results):
     naive_err_median = np.nanmedian(np.hstack(df_best_naive["smape"])).round(4)
     naive_err_std = np.nanstd(np.hstack(df_best_naive["smape"])).round(4)
 
-    sr_err_naive = pd.Series({"err_mean": naive_err_mean,
-                              "err_median": naive_err_median,
-                              "err_std": naive_err_std })
+    naive_err = pd.Series({"err_mean": naive_err_mean,
+                           "err_median": naive_err_median,
+                           "err_std": naive_err_std })
 
     # summarize the metrics and improvement vs. naive
     err_mean = np.nanmean(np.hstack(df_best["smape"])).round(4)
     err_median = np.nanmedian(np.hstack(df_best["smape"])).round(4)
     err_std = np.nanstd(np.hstack(df_best["smape"])).round(4)
 
-    sr_err = pd.Series({"err_mean": err_mean,
-                        "err_median": err_median,
-                        "err_std": err_std })
+    best_err = pd.Series({"err_mean": err_mean,
+                          "err_median": err_median,
+                          "err_std": err_std })
     
-    acc_increase = ((1 - sr_err.err_mean) - 
-                    (1 - sr_err_naive.err_mean)).round(4)
-
-    return df_model_dist, sr_err, sr_err_naive, acc_increase
+    return df_model_dist, best_err, naive_err
 
 
 def make_health_summary(df, freq):
@@ -663,6 +660,42 @@ def make_health_summary(df, freq):
     df_summary = df_summary.reset_index()
 
     return df_summary
+
+
+def process_forecasts(wait_for):
+    """
+    """
+
+    # aggregate the forecasts
+    raw_results = [f.result() for f in futures.as_completed(wait_for)]
+
+    pred_lst = []
+    results_lst = []
+
+    for df_pred, df_results in raw_results:
+        pred_lst.append(df_pred)
+        results_lst.append(df_results)
+
+    # results dataframe
+    df_results = pd.concat(results_lst) \
+                   .reset_index(drop=True)
+
+    assert(df_results is not None)
+
+    # predictions dataframe
+    df_preds = pd.concat(pred_lst)
+    df_preds.index.name = "timestamp"
+    df_preds.reset_index(inplace=True)
+
+    '''
+    # analysis dataframes
+    df_demand_cln = \
+        make_demand_classification(df, freq)
+
+    df_perf = make_perf_summary(df_results)
+    '''
+
+    return df_results, df_preds
 
 
 #

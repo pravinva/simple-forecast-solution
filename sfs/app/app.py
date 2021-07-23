@@ -18,6 +18,7 @@ https://github.com/aws-samples/simple-forecat-solution/
 '''
 import os
 import sys
+import io
 import glob
 import time
 import datetime
@@ -36,27 +37,35 @@ import streamlit as st
 import plotly.express as pex
 import plotly.graph_objects as go
 
-from collections import OrderedDict
+from collections import OrderedDict, namedtuple
 from concurrent import futures
 from sspipe import p, px
+from streamlit import session_state as state
 from stqdm import stqdm
-from SessionState import get_state
+#from SessionState import get_state
+from tabulate import tabulate
 from sfs import (load_data, resample, run_pipeline, run_cv_select,
-    make_demand_classification, make_perf_summary,
+    make_demand_classification, process_forecasts, make_perf_summary,
     make_health_summary, GROUP_COLS, EXP_COLS)
 
 from lambdamap import LambdaExecutor, LambdaFunction
 from streamlit.uploaded_file_manager import UploadedFile
+from streamlit.script_runner import RerunException
 
 ST_STATIC_PATH = pathlib.Path(st.__path__[0]).joinpath("static")
 ST_DOWNLOADS_PATH = ST_STATIC_PATH.joinpath("downloads")
 LAMBDAMAP_FUNC = "SfsLambdaMapFunction"
+SM_LOCAL_FILE_DIR = "/home/ec2-user/SageMaker"
 
 if not os.path.exists(ST_DOWNLOADS_PATH):
     ST_DOWNLOADS_PATH.mkdir()
 
 FREQ_MAP = OrderedDict(Daily="D", Weekly="W-MON", Monthly="MS")
 FREQ_MAP_AFC = OrderedDict(Daily="D", Weekly="W", Monthly="M")
+FREQ_MAP_LONG = {
+    "D": "Daily", "W-MON": "Weekly", "W": "Weekly", "M": "Monthly",
+    "MS": "Monthly"
+}
 
 
 def validate(df):
@@ -78,28 +87,22 @@ def validate(df):
 
     is_valid_file = len(err_msgs) == 0
 
-    return msgs, is_valid_file
+    return df, msgs, is_valid_file
 
 
 @st.cache
-def load_uploaded_file(uploaded_file):
+def load_file(path):
     """
     """
 
-    if uploaded_file.name.endswith(".csv.gz"):
+    if path.endswith(".csv.gz"):
         compression = "gzip"
-    elif uploaded_file.name.endswith(".csv"):
+    elif path.endswith(".csv"):
         compression = None
     else:
         raise NotImplementedError
 
-    df = pd.read_csv(uploaded_file, dtype={"timestamp": str},
-                     compression=compression)
-
-    # reset read position to start of file
-    uploaded_file.seek(0, 0)
-
-    return df
+    return pd.read_csv(path, dtype={"timestamp": str}, compression=compression)
 
 
 class StreamlitExecutor(LambdaExecutor):
@@ -162,18 +165,6 @@ def run_lambdamap(df, horiz, freq):
 
     return wait_for
 
-
-def sm_file_selector(folder_path='.'):
-    """
-    """
-
-    filenames = glob.glob(os.path.join(folder_path, "*.csv"))
-    selected_filename = st.selectbox('Select a file', filenames)
-
-    if selected_filename is None:
-        return None
-
-    return open(os.path.join(folder_path, selected_filename))
 
 #
 # Panels
@@ -360,72 +351,7 @@ def panel_prepare_data(state):
     return
 
 
-def panel_health_check(state):
-    """
-    """
-
-    df_health = state.df_health
-
-    num_series = df_health.shape[0]
-    num_channels = df_health["channel"].nunique()
-    num_families = df_health["family"].nunique()
-    num_item_ids = df_health["item_id"].nunique()
-    first_date = df_health['timestamp_min'].dt.strftime('%Y-%m-%d').min()
-    last_date = df_health['timestamp_max'].dt.strftime('%Y-%m-%d').max()
-
-    if state.freq_in == 'Daily':
-        duration_unit = 'D'
-        duration_str = 'days'
-    elif state.freq_in == 'Weekly':
-        duration_unit = 'W'
-        duration_str = 'weeks'
-    elif state.freq_in == 'Monthly':
-        duration_unit = 'M'
-        duration_str = 'months'
-    else:
-        raise NotImplementedError
-
-    duration = pd.Timestamp(last_date).to_period(duration_unit) - \
-               pd.Timestamp(first_date).to_period(duration_unit)
-
-    pc_missing = \
-        df_health["demand_missing_dates"].sum() / df_health["demand_len"].sum()
-
-    with st.beta_container():
-        _cols = st.beta_columns(3)
-
-        with _cols[0]:
-            st.markdown("#### Summary")
-            st.text(f"Frequency:\t{state.freq_in}\n"
-                    f"No. series:\t{num_series}\n"
-                    f"No. channels:\t{num_channels}\n"
-                    f"No. families:\t{num_families}\n"
-                    f"No. item IDs:\t{num_item_ids}"
-                )
-
-        with _cols[1]:
-            st.markdown("#### Timespan")
-            st.text(f"Duration:\t{duration.n} {duration_str}\n"
-                    f"First date:\t{first_date}\n"
-                    f"Last date:\t{last_date}\n")
-                    #f"% missing:\t{int(np.round(pc_missing*100,0))}")
-
-        with _cols[2]:
-            st.markdown("#### Timeseries Lengths")
-
-            fig = pex.box(df_health, x="demand_nonnull_count", height=160)
-            fig.update_layout(
-                margin={"t": 5, "b": 0, "r": 0, "l": 0},
-                xaxis_title=duration_str,
-                height=100
-            )
-
-            st.plotly_chart(fig, use_container_width=True)
-
-    return
-
-
-def panel_forecast_summary(state):
+def panel_forecast_summary():
     """
     """
     df_demand_cln = state.df_demand_cln
@@ -518,67 +444,397 @@ def panel_downloads(state):
     return
 
 
-#
-# Pages
-#
-def page_upload_file(state):
+
+def panel_load_data():
+    """Display the 'Load Data' panel.
+
+    """
+
+    def _load_data(path):
+        if path.endswith(".csv"):
+            compression = None
+        elif path.endswith(".csv.gz"):
+            compression = "gzip"
+        else:
+            raise NotImplementedError
+
+        df = pd.read_csv(path,
+            dtype={"timestamp": str, "channel": str, "family": str,
+                   "item_id": str}, compression=compression)
+
+        return df
+
+    with st.beta_expander("☑️ Validate Data", expanded=True):
+        _cols = st.beta_columns([3,1])
+
+        with _cols[0]:
+            fn = file_selectbox("File", SM_LOCAL_FILE_DIR)
+            btn_refresh_files = st.button("Refresh Files")
+
+        with _cols[1]:
+            freq = st.selectbox("Frequency", list(FREQ_MAP.values()),
+                    format_func=lambda s: FREQ_MAP_LONG[s])
+            btn_validate = st.button("Validate")
+
+        if btn_validate:
+            # temporarily load the file for validation and store it in state
+            # iff the data is valid
+            with st.spinner("Validating file ..."):
+                time.sleep(1.5)
+                #df, msgs, is_valid_file = validate(_load_data(fn))
+                df, msgs, is_valid_file = validate(_load_data(fn))#.drop(["timestamp", "channel"], axis=1))
+
+            if is_valid_file:
+                with st.spinner("Processing file ..."):
+                    state.report["data"]["path"] = fn
+                    state.report["data"]["sz_bytes"] = os.path.getsize(fn)
+                    state.report["data"]["freq"] = freq
+                    state.report["data"]["df"] = \
+                        load_data(df, impute_freq=state.report["data"]["freq"])
+            else:
+                err_bullets = "\n".join("- " + s for s in msgs["errors"])
+                st.error(f"**Validation failed**\n\n{err_bullets}")
+
+    return
+
+
+def panel_data_health():
     """
     """
-    with st.beta_container():
-        st.header("Create Forecast")
-        st.subheader("Step 1: Upload and validate a historic demand file")
 
-        with st.form("form_select_file"): 
-            state.uploaded_file = st.file_uploader("Select a .csv or .csv.gz file")
+    df = state.report["data"].get("df", None)
+    df_health = state.report["data"].get("df_health", None)
+    freq = state.report["data"].get("freq", None)
 
-            _cols = st.beta_columns(1)
+    if df is None:
+        return
+
+    with st.beta_expander("❤️ Data Health", expanded=True):
+        st.write("")
+
+        with st.spinner("Performing data health check ..."):
+            # check iff required
+            if df_health is None:
+                df_health = make_health_summary(df, state.report["data"]["freq"])
+
+                # save the health check results
+                state.report["data"]["df_health"] = df_health
+
+        num_series = df_health.shape[0]
+        num_channels = df_health["channel"].nunique()
+        num_families = df_health["family"].nunique()
+        num_item_ids = df_health["item_id"].nunique()
+        first_date = df_health['timestamp_min'].dt.strftime('%Y-%m-%d').min()
+        last_date = df_health['timestamp_max'].dt.strftime('%Y-%m-%d').max()
+
+        if freq == 'D':
+            duration_unit = 'D'
+            duration_str = 'days'
+        elif freq in ("W", "W-MON",):
+            duration_unit = 'W'
+            duration_str = 'weeks'
+        elif freq in ("M", "MS",):
+            duration_unit = 'M'
+            duration_str = 'months'
+        else:
+            raise NotImplementedError
+
+        duration = pd.Timestamp(last_date).to_period(duration_unit) - \
+                   pd.Timestamp(first_date).to_period(duration_unit)
+
+        pc_missing = \
+            df_health["demand_missing_dates"].sum() / df_health["demand_len"].sum()
+
+        with st.beta_container():
+            _cols = st.beta_columns(3)
 
             with _cols[0]:
-                state.freq_in = st.selectbox("Input Frequency", list(FREQ_MAP.keys())) 
+                st.markdown("#### Summary")
+                st.text(textwrap.dedent(f"""
+                No. series:\t{num_series}  
+                No. channels:\t{num_channels}  
+                No. families:\t{num_families}  
+                No. item IDs:\t{num_item_ids}
+                """))
 
-            validate_button = st.form_submit_button("Validate")
+            with _cols[1]:
+                st.markdown("#### Timespan")
+                st.text(f"Frequency:\t{FREQ_MAP_LONG[freq]}\n"
+                        f"Duration:\t{duration.n} {duration_str}\n"
+                        f"First date:\t{first_date}\n"
+                        f"Last date:\t{last_date}\n")
+                        #f"% missing:\t{int(np.round(pc_missing*100,0))}")
 
-        #
-        # run validation process
-        #
-        if validate_button:
-            #st.text(state.uploaded_file)
-            if state.uploaded_file:
-                with st.spinner("Validating file..."):
-                    state.df_upload = load_uploaded_file(state.uploaded_file)
-                    state.vldn_msgs, state.is_valid_file = validate(state.df_upload)
+            with _cols[2]:
+                st.markdown("#### Timeseries Lengths")
+
+                fig = pex.box(df_health, x="demand_nonnull_count", height=160)
+                fig.update_layout(
+                    margin={"t": 5, "b": 0, "r": 0, "l": 0},
+                    xaxis_title=duration_str,
+                    height=100
+                )
+
+                st.plotly_chart(fig, use_container_width=True)
+
+    return
+
+
+def panel_launch():
+    """
+    """
+
+    def _format_func(short):
+        if short == "local":
+            s = " Local"
+        if short == "lambdamap":
+            s = "AWS Lambda"
+        return s
+
+    df = state.report["data"].get("df", None)
+    df_health = state.report["data"].get("df_health", None)
+    horiz = state.report["sfs"].get("horiz", None)
+    freq = state.report["sfs"].get("freq", None)
+
+    if df is None or df_health is None:
+        return
+
+    with st.beta_expander("🚀 Launch", expanded=True):
+        st.write("")
+        with st.form("sfs_form"):
+            with st.beta_container():
+                _cols = st.beta_columns(3)
+
+                with _cols[0]:
+                    horiz = st.number_input("Horizon Length", value=1, min_value=1)
+
+                with _cols[1]:
+                    freq = st.selectbox("Forecast Frequency", list(FREQ_MAP.values()), 0,
+                            format_func=lambda s: FREQ_MAP_LONG[s])
+
+                with _cols[2]:
+                    backend = st.selectbox("Compute Backend", ["lambdamap", "local"], 0, _format_func)
+
+                btn_launch = st.form_submit_button("Launch")
+
+        if btn_launch:
+            # save form data
+            state.report["sfs"]["freq"] = freq
+            state.report["sfs"]["horiz"] = horiz
+            state.report["sfs"]["backend"] = backend
+
+            df = state.report["data"]["df"]
+            freq_in = state.report["data"]["freq"]
+            freq_out = state.report["sfs"]["freq"]
+
+            if backend == "local":
+                wait_for = \
+                    run_pipeline(df, freq_in, freq_out, obj_metric="smape_mean",
+                        cv_stride=2, backend="futures", horiz=horiz)
             else:
-                st.error("Please select a file")
+                raise NotImplementedError
 
-        # validation error messages
-        if state.is_valid_file:
-            # parse data into sfs format and impute missing dates according
-            # to the input frequency
-            state.df = load_data(state.df_upload, impute_freq=FREQ_MAP[state.freq_in])
-        elif state.is_valid_file is None:
-            pass
-        else:
-            err_bullets = \
-                "\n\n".join("- " + s for s in state.vldn_msgs["errors"])
-            st.error(f"Validation failed\n\n{err_bullets}")
-            st.stop()
+            display_progress(wait_for, "🔥 Generating forecasts")
 
-        #
-        # run data health check
-        #
-        if state.is_valid_file and state.df is not None:
-            panel_health_check(state)
-            panel_launch_forecast(state)
+            with st.spinner("Processing forecasts ..."):
+                # generate the results and predictions as dataframes
+                df_results, df_preds = process_forecasts(wait_for)
 
-        if state.df_pred is None and state.df_report is None:
-            pass
-        else:
-            st.info('Forecast completed!, select "View Report" from the sidebar to view the forecast results')
+                # generate the demand classifcation info
+                df_demand_cln = make_demand_classification(df, freq_in)
+
+            # save results and forecast data
+            state.report["sfs"]["df_results"] = df_results
+            state.report["sfs"]["df_preds"] = df_preds
+            state.report["sfs"]["df_demand_cln"] = df_demand_cln
+
+    return
+
+
+def panel_accuracy():
+    """
+    """
+
+    df = state.report["data"].get("df", None)
+    df_demand_cln = state.report["sfs"].get("df_demand_cln", None)
+    df_results = state.report["sfs"].get("df_results", None)
+    horiz = state.report["sfs"].get("horiz", None)
+    freq_out = state.report["sfs"].get("freq", None)
+
+    if df is None or df_results is None:
+        return
+
+    with st.beta_expander("🎯 Forecast Summary", expanded=True):
+        df_cln = pd.DataFrame({"category": ["short", "medium", "continuous"]})
+        df_cln = df_cln.merge(
+            df_demand_cln["category"]
+                .value_counts(normalize=True)
+                .reset_index()
+                .rename({"index": "category", "category": "frac"}, axis=1),
+            on="category", how="left"
+        )
+
+        df_cln = df_cln.fillna(0.0)
+        df_cln["frac"] *= 100
+        df_cln["frac"] = df_cln["frac"].astype(int)
+
+        _cols = st.beta_columns(3)
+
+        with _cols[0]:
+            st.markdown("#### Parameters")
+            st.text(f"Horiz. Length:\t{horiz}\n"
+                    f"Frequency:\t{freq_out}")
+
+            st.markdown("#### Classification")
+            st.text(f"Short:\t\t{df_cln.iloc[0]['frac']} %\n"
+                    f"Medium:\t\t{df_cln.iloc[1]['frac']} %\n"
+                    f"Continuous:\t{df_cln.iloc[2]['frac']} %")
+
+        # generate the performance summary (runtime)
+        df_model_dist, best_err, naive_err = make_perf_summary(df_results)
+
+        with _cols[1]:
+            st.markdown("#### Best Models")
+            df_model_dist = df_model_dist.query("perc > 0")
+            labels = df_model_dist["model_type"].values
+            values = df_model_dist["perc"].values
+
+            fig = go.Figure(data=[go.Pie(labels=labels, values=values, hole=0.40)])
+            fig.update(layout_showlegend=False)
+            fig.update_layout(
+                margin={"t": 0, "b": 0, "r": 20, "l": 20},
+                width=200,
+                height=150,
+            )
+            fig.update_traces(textinfo="percent+label")
+            st.plotly_chart(fig)
+
+        # calc. overall accuracy (runtime)
+        df_model_dist, best_err, naive_err = make_perf_summary(df_results)
+
+        acc = (1 - best_err.err_mean) * 100.
+        acc_naive = (1 - naive_err.err_mean) * 100.
+
+        with _cols[2]:
+            st.markdown("#### Overall Accuracy")
+            st.markdown(
+                f"<div style='font-size:36pt;font-weight:bold'>{acc:.0f}%</div>"
+                f"({acc - acc_naive:.0f}% increase vs. naive)", unsafe_allow_html=True)
+
+    return
+
+
+def make_df_top(df, df_results, col, dt_start, dt_stop, cperc_thresh):
+    """
+    """
+    metric = "smape_mean"
+    df.index.name = "timestamp"
+
+    dt_start = pd.Timestamp(dt_start).strftime("%Y-%m-%d")
+    dt_stop = pd.Timestamp(dt_stop).strftime("%Y-%m-%d")
+    df2 = df.query(f"timestamp >= '{dt_start}' and timestamp <= '{dt_stop}'")
+    total_demand = df2["demand"].sum()
+
+    # calculate per-group demand %
+    df_grp_demand = \
+        df2 \
+        | px.groupby(col, as_index=False) \
+        | px.agg({"demand": sum}) \
+        | px.assign(perc=np.round(px["demand"] / total_demand * 100, 1))
+
+    # get the best models for each group
+    df_grp_metrics = \
+        df_results \
+        | px.query("rank == 1") \
+        | px.dropna(how="any") \
+        | px.groupby(col, as_index=False) \
+        | px.agg({metric: "mean"}) \
+        | px.assign(accuracy=np.round(100 * (1-px["smape_mean"]), 0)) \
+        | px.drop([metric], axis=1)
+
+    # combine, sort, and display
+    df_grp = df_grp_demand \
+        | px.merge(df_grp_metrics, on=col, how="left") \
+        | px.sort_values(by="demand", ascending=False) \
+        | px.assign(cperc=px["perc"].cumsum().round(0)) \
+        | px.query(f"cperc <= {cperc_thresh}") \
+        | px.rename({"perc": "% total demand"}, axis=1) \
+        | px.drop("cperc", axis=1)
+
+    # calc. summary row
+    df_grp_summary = df_grp \
+        | px.agg({"demand": sum, "accuracy": "mean"})
+
+    df_grp_summary["% total demand"] = np.round(100 * df_grp_summary["demand"] / total_demand, 1)
+    df_grp_summary = pd.DataFrame(df_grp_summary).T[["demand", "% total demand", "accuracy"]]
+    df_grp_summary.insert(0, "column", col)
+    
+    return df_grp, df_grp_summary
+
+
+def panel_top_performers():
+    """
+    """
+
+    df = state.report["data"].get("df", None)
+    df_demand_cln = state.report["sfs"].get("df_demand_cln", None)
+    df_results = state.report["sfs"].get("df_results", None)
+    horiz = state.report["sfs"].get("horiz", None)
+    freq_out = state.report["sfs"].get("freq", None)
+
+    if df is None or df_results is None:
+        return
+
+    with st.beta_expander("🏆 Top Performers", expanded=True):
+        _cols = st.beta_columns(3)
+
+        dt_min = df.index.min()
+        dt_max = df.index.max()
+
+        with _cols[0]:
+            col = st.selectbox("Group By", ["item_id", "family", "channel"])
+        with _cols[1]:
+            dt_start = st.date_input("Start", value=dt_min, min_value=dt_min, max_value=dt_max)
+        with _cols[2]:
+            dt_stop = st.date_input("Stop", value=dt_max, min_value=dt_min, max_value=dt_max)
+
+        cperc_thresh = st.slider("Percentage of total demand",
+            step=5, value=80, format="%d%%",
+            help="Select the percentage of total demand")
+
+        dt_start = dt_start.strftime("%Y-%m-%d")
+        dt_stop = dt_stop.strftime("%Y-%m-%d")
+
+        with st.spinner("Processing top performers ..."):
+            df_grp, df_grp_summary = make_df_top(df, df_results, col, dt_start, dt_stop, cperc_thresh)
+
+        mean_acc = df_grp_summary["accuracy"].values[0]
+        total_demand = df_grp_summary["demand"].values[0]
+        perc_demand = df_grp_summary["% total demand"].values[0]
+
+        _cols = st.beta_columns([1,2])
+
+        with _cols[0]:
+            st.markdown("#### Summary")
+            st.text(textwrap.dedent(f"""
+            Avg. Accuracy:\t{int(mean_acc):d} %  
+            Demand:\t\t{total_demand:.0f} 
+            % Total Demand:\t{perc_demand:.0f} %
+            """))
+
+        with _cols[1]:
+            st.markdown("#### Results")
+            tablefmt="simple"
+            df_grp.rename({"% total demand": "% total\ndemand"}, axis=1, inplace=True)
+            st.text("\t" +tabulate(df_grp, tablefmt=tablefmt, showindex="never", headers=df_grp.columns))
 
 
     return
 
 
+#
+# Pages
+#
 def page_create_forecast(state):
     """
     """
@@ -896,76 +1152,42 @@ def page_view_report(state):
     return
 
 
-def make_dataframes(state, wait_for):
-    """
-    """
-
-    # aggregate the forecasts
-    raw_results = [f.result() for f in futures.as_completed(wait_for)]
-
-    pred_lst = []
-    results_lst = []
-
-    for df_pred, df_results in raw_results:
-        pred_lst.append(df_pred)
-        results_lst.append(df_results)
-
-    # results dataframe
-    df_results = pd.concat(results_lst) \
-                   .reset_index(drop=True)
-
-    print(df_results.head())
-
-    assert(df_results is not None)
-
-    state.df_results = df_results
-
-    # predictions dataframe
-    state.df_pred = pd.concat(pred_lst)
-    state.df_pred.index.name = "timestamp"
-    state.df_pred.reset_index(inplace=True)
-
-    # analysis dataframes
-    state.df_demand_cln = \
-        make_demand_classification(state.df, FREQ_MAP[state.freq_out])
-    state.perf_summary = make_perf_summary(state.df_results)
-
-    state.df_hist = state.df_pred.query("type == 'actual'")
-
-    return state
-
-
-def make_df_top(state):
-    #
-    # Get the top-10 SKUs, ordered by historic demand
-    #
-    groups = state.df_hist.groupby(GROUP_COLS, as_index=False)
-    n_top = min(groups.ngroups, 10)
-    n_top = groups.ngroups
-
-    df_top = groups.agg({"demand": sum}) \
-                  .sort_values(by="demand", ascending=False) \
-                  .head(n_top) \
-                  .reset_index(drop=True)
-
-    df_top["perc"] = (df_top["demand"] / df_top["demand"].sum() * 100).round(0)
-    df_top["cperc"] = df_top["perc"].cumsum().round(1)
-    df_top = df_top.merge(
-        state.df_results.query("rank==1")[["channel", "family", "item_id", "smape_mean"]],
-            on=["channel", "family", "item_id"], how="left")
-
-    df_top["accuracy"] = ((1 - df_top["smape_mean"]) * 100.).round(0)
-
-    #print(df_top)
-    df_top = df_top.assign(_index=np.arange(n_top)+1).set_index("_index")
-
-    df_top.sort_values(by="demand", ascending=False, inplace=True)
-    df_top.rename({"perc": "% of total demand"}, axis=1, inplace=True)
-
-    state.df_top = df_top
-
-    return
-
+#def process_forecasts(wait_for):
+#    """
+#    """
+#
+#    # aggregate the forecasts
+#    raw_results = [f.result() for f in futures.as_completed(wait_for)]
+#
+#    pred_lst = []
+#    results_lst = []
+#
+#    for df_pred, df_results in raw_results:
+#        pred_lst.append(df_pred)
+#        results_lst.append(df_results)
+#
+#    # results dataframe
+#    df_results = pd.concat(results_lst) \
+#                   .reset_index(drop=True)
+#
+#    assert(df_results is not None)
+#
+#    # predictions dataframe
+#    df_preds = pd.concat(pred_lst)
+#    df_preds.index.name = "timestamp"
+#    df_preds.reset_index(inplace=True)
+#
+#    # analysis dataframes
+#    df_demand_cln = \
+#        make_demand_classification(state.report["data"]["df"],
+#                                   state.report["sfs"]["freq"])
+#
+#    df_perf = make_perf_summary(df_results)
+#
+#    state.report["sfs"]["df_results"] = df_results
+#    state.report["sfs"]["df_preds"] = df_preds
+#
+#    return
 
 def run_afc_state_machine(state):
     """Execute the Amazon Forecast state machine.
@@ -1037,6 +1259,22 @@ def refresh_afc_state_machine_status(state):
     return resp["status"]
 
 
+def file_selectbox(label, folder):
+    """
+    """
+
+    if folder.startswith("s3://"):
+        raise NotImplementedError
+    else:
+        fns = []
+        for pat in ("*.csv", "*.csv.gz"):
+            fns.extend(glob.glob(os.path.join(folder, pat)))
+
+    fn = st.selectbox(label, fns, format_func=lambda s: os.path.basename(s))
+
+    return fn
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--local-file-dir", type=str,
@@ -1050,232 +1288,253 @@ if __name__ == "__main__":
     assert(os.path.exists(args.local_file_dir))
 
     #st.set_page_config(layout="wide")
-    state = get_state()
+
+    if "report" not in state:
+        state["report"] = {"data": {}, "sfs": {}, "afc": {}}
 
     pages = {
-        "Create Forecast": page_upload_file,
+        "Create Forecast": None, #page_upload_file,
         "View Report": page_view_report
     }
 
     st.sidebar.title("Amazon Simple Forecast Solution")
     st.sidebar.markdown(textwrap.dedent("""
-
+    - [github](https://github.com/aws-samples/simple-forecast-solution)
     """))
 
     st.subheader("Amazon Simple Forecast Solution")
-    st.title("Launch Forecasts :rocket:")
+    st.title("Create Forecasts")
     st.markdown("")
 
-    with st.beta_expander("0 – Prepare Data"):
-        panel_prepare_data(state)
+#   with st.beta_expander("0 – Prepare Data"):
+#       panel_prepare_data(state)
 
-    with st.beta_expander("1 – Load & Validate Data", expanded=True):
-        if state.uploaded_file is None:
-#           host_type = st.radio("Select host type:",
-#               options=["Amazon SageMaker Notebook Instance", "Self-Hosted"])
-            host_type = "Amazon SageMaker Notebook Instance"
+    #st.write(state.report)
 
-            if host_type == "Amazon SageMaker Notebook Instance":
-                # List uploaded files in local directory
-                uploaded_file = sm_file_selector(folder_path=args.local_file_dir)
-                st.button("Refresh Files")
-            elif host_type == "Self-Hosted":
-                uploaded_file = st.file_uploader("File")
-            else:
-                raise NotImplementedError
-
-            state.host_type = host_type
-            state.freq_in = st.selectbox("Frequency", list(FREQ_MAP.keys()))
-            validate_button = st.button("Validate")
-
-            if validate_button:
-                state.uploaded_file = uploaded_file
-
-                if state.uploaded_file:
-                    with st.spinner("Validating file..."):
-                        state.df_upload = load_uploaded_file(state.uploaded_file)
-                        state.vldn_msgs, state.is_valid_file = validate(state.df_upload)
-                else:
-                    st.error("Please select a file")
-
-            if state.is_valid_file and state.uploaded_file:
-                # parse data into sfs format and impute missing dates according
-                # to the input frequency
-                state.df = load_data(state.df_upload, impute_freq=FREQ_MAP[state.freq_in])
-                state.uploaded_file_name = state.uploaded_file.name
-
-                if isinstance(state.uploaded_file, UploadedFile):
-                    state.uploaded_file_size = state.uploaded_file.size
-                else:
-                    state.uploaded_file_size = os.fstat(state.uploaded_file.fileno()).st_size
-
-                st.info(f"Validation succeeded")
-            elif state.is_valid_file is None:
-                pass
-            else:
-                err_bullets = \
-                    "\n\n".join("- " + s for s in state.vldn_msgs["errors"])
-                st.error(f"Validation failed\n\n{err_bullets}")
-        else:
-            st.text(f"File:\t\t{state.uploaded_file_name}\n"
-                    f"Size:\t\t~{state.uploaded_file_size/1e6:.1f} MB\n"
-                    f"Frequency:\t{state.freq_in}")
-
-    if state.df is not None and state.df_health is None:
-        with st.spinner("Running data health check..."):
-            state.df_health = \
-                make_health_summary(state.df, FREQ_MAP[state.freq_in])
-
-    #
-    # Display validation health check status
-    #
-    if state.df_health is None:
+    with st.beta_expander("💾 Load/Save Report"):
         pass
-    else:
-        with st.beta_expander("2 – Data Health Check", expanded=True):
-            panel_health_check(state)
 
-    if state.is_valid_file and state.df is not None:
-        with st.beta_expander("3 – Configure & Launch Forecast", expanded=True):
-            with st.form("sfs_form"):
-                with st.beta_container():
-                    _cols = st.beta_columns(3)
+    panel_load_data()
+    panel_data_health()
+    panel_launch()
+    panel_accuracy()
+    panel_top_performers()
 
-                    with _cols[0]:
-                        state.horiz = st.number_input("Horizon Length", value=1, min_value=1)
+#   if state.report["data"]:
+#       btn_validate_data = panel_validate_data(state)
+#   else:
+#       pass
 
-                    with _cols[1]:
-                        state.freq_out = \
-                            st.selectbox("Forecast Frequency",
-                                list(FREQ_MAP.keys()),
-                                list(FREQ_MAP.keys()).index(state.freq_out) if state.freq_out else 0)
+ #  with st.beta_expander("1 – Load & Validate Data", expanded=True):
+ #      if state.uploaded_file is None:
+ #          host_type = "Amazon SageMaker Notebook Instance"
+ #          _cols = st.beta_columns([2,1])
 
-                    with _cols[2]:
-                        state.backend = \
-                            st.selectbox("Compute Backend", ["AWS Lambda", "Local"], 0)
+ #          if host_type == "Amazon SageMaker Notebook Instance":
+ #              with _cols[0]:
+ #                  # List uploaded files in local directory
+ #                  uploaded_file = file_selectbox(args.local_file_dir)
+ #                  st.button("Refresh Files")
+ #          elif host_type == "Self-Hosted":
+ #              uploaded_file = st.file_uploader("File")
+ #          else:
+ #              raise NotImplementedError
 
-                    launch_button = st.form_submit_button("Launch")
-    #
-    # Launch a forecast job
-    #
-    if state.is_valid_file and isinstance(state.df, pd.DataFrame) and \
-        launch_button and state.backend:
-        if state.backend == 'Local':
-            wait_for = \
-                run_pipeline(state.df, FREQ_MAP[state.freq_in],
-                    FREQ_MAP[state.freq_out], obj_metric="smape_mean",
-                    cv_stride=2, backend="futures", horiz=state.horiz)
-        elif state.backend == 'AWS Lambda':
-            # Resample data
-            with st.spinner(f"Resampling to {state.freq_out} frequency"):
-                state.df2 = resample(state.df, FREQ_MAP[state.freq_out])
+ #          state.host_type = host_type
 
-            wait_for = \
-                run_lambdamap(state.df2, state.horiz, FREQ_MAP[state.freq_out])
-        else:
-            raise NotImplementedError
+ #          with _cols[1]:
+ #              state.freq_in = st.selectbox("Frequency", list(FREQ_MAP.keys()))
+ #              validate_button = st.button("Validate")
 
-        display_progress(wait_for, "Generating forecast")
+ #          if validate_button:
+ #              state.uploaded_file = uploaded_file
 
-        with st.spinner("Processing Results"):
-            make_dataframes(state, wait_for)
+ #              if state.uploaded_file:
+ #                  with st.spinner("Validating file..."):
+ #                      state.df_upload = load_uploaded_file(state.uploaded_file)
+ #                      state.vldn_msgs, state.is_valid_file = validate(state.df_upload)
+ #              else:
+ #                  st.error("Please select a file")
 
-    #
-    # Display Visualization Panel
-    #
-    if state.df_pred is None and state.df_results is None:
-        pass
-    else:
-        with st.beta_expander("4 – Forecast Summary", expanded=True):
-            panel_forecast_summary(state)
+ #          if state.is_valid_file and state.uploaded_file:
+ #              # parse data into sfs format and impute missing dates according
+ #              # to the input frequency
+ #              state.df = load_data(state.df_upload, impute_freq=FREQ_MAP[state.freq_in])
+ #              state.uploaded_file_name = state.uploaded_file.name
 
-        with st.beta_expander("5 - Top Performers", expanded=True):
-            st.markdown("### Top Performers")
-            st.info("""Calculate the forecast accuracy by **item_id**,
-            **family**, or **channel** according to their percentage of total demand
-            over a given time period.""")
-            make_df_top(state)
+ #              if isinstance(state.uploaded_file, UploadedFile):
+ #                  state.uploaded_file_size = state.uploaded_file.size
+ #              else:
+ #                  state.uploaded_file_size = os.fstat(state.uploaded_file.fileno()).st_size
 
-            with st.form("top_perf_form"):
-                _cols = st.beta_columns(3)
+ #              st.info(f"Validation succeeded")
+ #          elif state.is_valid_file is None:
+ #              pass
+ #          else:
+ #              err_bullets = \
+ #                  "\n\n".join("- " + s for s in state.vldn_msgs["errors"])
+ #              st.error(f"Validation failed\n\n{err_bullets}")
+ #      else:
+ #          st.text(f"File:\t\t{state.uploaded_file_name}\n"
+ #                  f"Size:\t\t~{state.uploaded_file_size/1e6:.1f} MB\n"
+ #                  f"Frequency:\t{state.freq_in}")
 
-                with _cols[0]:
-                    st.selectbox("Group By", ["item_id", "channel", "family"])
+ #  if state.df is not None and state.df_health is None:
+ #      with st.spinner("Running data health check..."):
+ #          state.df_health = \
+ #              make_health_summary(state.df, FREQ_MAP[state.freq_in])
 
-                with _cols[1]:
-                    st.date_input("Start")
+ #  #
+ #  # Display validation health check status
+ #  #
+ #  if state.df_health is None:
+ #      pass
+ #  else:
+ #      with st.beta_expander("2 – Data Health Check", expanded=True):
+ #          panel_health_check(state)
 
-                with _cols[2]:
-                    st.date_input("End")
+ #  if state.is_valid_file and state.df is not None:
+ #      with st.beta_expander("3 – Configure & Launch Forecast", expanded=True):
+ #          with st.form("sfs_form"):
+ #              with st.beta_container():
+ #                  _cols = st.beta_columns(3)
 
-                _slider_value = \
-                    st.slider("Percentage of total demand", step=5, value=80, format="%d%%", help="Select the percentage of total demand")
+ #                  with _cols[0]:
+ #                      state.horiz = st.number_input("Horizon Length", value=1, min_value=1)
 
-                if st.form_submit_button("Apply"):
-                    slider_value = _slider_value
-                else:
-                    slider_value = 80
+ #                  with _cols[1]:
+ #                      state.freq_out = \
+ #                          st.selectbox("Forecast Frequency",
+ #                              list(FREQ_MAP.keys()),
+ #                              list(FREQ_MAP.keys()).index(state.freq_out) if state.freq_out else 0)
 
-            df_top_subset = state.df_top.query(f"cperc <= {slider_value:f}") \
-                    | px.loc[:,["channel", "family", "item_id", "demand", "% of total demand", "accuracy"]]
+ #                  with _cols[2]:
+ #                      state.backend = \
+ #                          st.selectbox("Compute Backend", ["AWS Lambda", "Local"], 0)
 
-#           with _cols[1]:
-#               acc = df_top_subset["accuracy"].mean()
-#               st.markdown("#### Avg. Accuracy")
+ #                  launch_button = st.form_submit_button("Launch")
+ #  #
+ #  # Launch a forecast job
+ #  #
+ #  if state.is_valid_file and isinstance(state.df, pd.DataFrame) and \
+ #      launch_button and state.backend:
+ #      if state.backend == 'Local':
+ #          wait_for = \
+ #              run_pipeline(state.df, FREQ_MAP[state.freq_in],
+ #                  FREQ_MAP[state.freq_out], obj_metric="smape_mean",
+ #                  cv_stride=2, backend="futures", horiz=state.horiz)
+ #      elif state.backend == 'AWS Lambda':
+ #          # Resample data
+ #          with st.spinner(f"Resampling to {state.freq_out} frequency"):
+ #              state.df2 = resample(state.df, FREQ_MAP[state.freq_out])
 
-#               if pd.isnull(acc):
-#                   pass
-#               else:
-#                   st.markdown(
-#                       f"<span style='font-size:36pt;font-weight:bold'>{acc:.0f}%</span><br/>",
-#                       unsafe_allow_html=True)
+ #          wait_for = \
+ #              run_lambdamap(state.df2, state.horiz, FREQ_MAP[state.freq_out])
+ #      else:
+ #          raise NotImplementedError
 
-            st.dataframe(df_top_subset.head(10))
-            
-            if df_top_subset.shape[0] > 10:
-                st.markdown("_Truncated – Top 10 Only_")
+ #      display_progress(wait_for, "Generating forecast")
 
-        with st.beta_expander("6 – Visualize Forecast", expanded=True):
-            panel_visualization(state)
+ #      with st.spinner("Processing Results"):
+ #          make_dataframes(state, wait_for)
 
-#       with st.beta_expander("7 – Downloads", expanded=True):
-#           panel_downloads(state)
+ #  #
+ #  # Display Visualization Panel
+ #  #
+ #  if state.df_pred is None and state.df_results is None:
+ #      pass
+ #  else:
+ #      with st.beta_expander("4 – Forecast Summary", expanded=True):
+ #          panel_forecast_summary(state)
 
-    #
-    # Amazon Forecast Panel
-    #
-    if state.is_valid_file and state.df is not None:
-        with st.beta_expander("8 - Amazon Forecast (optional)"):
-            st.markdown("")
-            with st.form("afc_form"):
-                _cols = st.beta_columns(3)
+ #      with st.beta_expander("5 - Top Performers", expanded=True):
+ #          st.markdown("### Top Performers")
+ #          st.info("""Calculate the forecast accuracy by **item_id**,
+ #          **family**, or **channel** according to their percentage of total demand
+ #          over a given time period.""")
+ #          make_df_top(state)
 
-                with _cols[0]:
-                    state.horiz_afc = \
-                        st.number_input("Horizon Length",
-                                        key="afc_horiz_input",
-                                        value=1, min_value=1)
+ #          with st.form("top_perf_form"):
+ #              _cols = st.beta_columns(3)
 
-                with _cols[1]:
-                    state.freq_out_afc = \
-                        st.selectbox("Forecast Frequency",
-                            list(FREQ_MAP_AFC.keys()),
-                            list(FREQ_MAP_AFC.keys()).index(state.freq_out_afc) if state.freq_out_afc else 0,
-                            key="afc_freq_input")
+ #              with _cols[0]:
+ #                  st.selectbox("Group By", ["item_id", "channel", "family"])
 
-                with _cols[2]:
-                    st.selectbox("Algorithm", ["AutoML"], 0, key="afc_algo_input")
+ #              with _cols[1]:
+ #                  st.date_input("Start")
 
-                afc_form_button = st.form_submit_button("Launch")
+ #              with _cols[2]:
+ #                  st.date_input("End")
 
-            # Launch Amazon Forecast job
-            if afc_form_button:
-                state.execution_arn = run_afc_state_machine(state)
+ #              _slider_value = \
+ #                  st.slider("Percentage of total demand", step=5, value=80, format="%d%%", help="Select the percentage of total demand")
 
-            afc_refresh_button = st.button("Refresh Job Status")
+ #              if st.form_submit_button("Apply"):
+ #                  slider_value = _slider_value
+ #              else:
+ #                  slider_value = 80
 
-            if state.execution_arn or afc_refresh_button:
-                afc_job_status = refresh_afc_state_machine_status(state)
-                st.markdown(f"Job Status: **{afc_job_status}**")
+ #          df_top_subset = state.df_top.query(f"cperc <= {slider_value:f}") \
+ #                  | px.loc[:,["channel", "family", "item_id", "demand", "% of total demand", "accuracy"]]
 
-    state.sync()
+##          with _cols[1]:
+##              acc = df_top_subset["accuracy"].mean()
+##              st.markdown("#### Avg. Accuracy")
+
+##              if pd.isnull(acc):
+##                  pass
+##              else:
+##                  st.markdown(
+##                      f"<span style='font-size:36pt;font-weight:bold'>{acc:.0f}%</span><br/>",
+##                      unsafe_allow_html=True)
+
+ #          st.dataframe(df_top_subset.head(10))
+ #          
+ #          if df_top_subset.shape[0] > 10:
+ #              st.markdown("_Truncated – Top 10 Only_")
+
+ #      with st.beta_expander("6 – Visualize Forecast", expanded=True):
+ #          panel_visualization(state)
+
+##      with st.beta_expander("7 – Downloads", expanded=True):
+##          panel_downloads(state)
+
+ #  #
+ #  # Amazon Forecast Panel
+ #  #
+ #  if state.is_valid_file and state.df is not None:
+ #      with st.beta_expander("8 - Amazon Forecast (optional)"):
+ #          st.markdown("")
+ #          with st.form("afc_form"):
+ #              _cols = st.beta_columns(3)
+
+ #              with _cols[0]:
+ #                  state.horiz_afc = \
+ #                      st.number_input("Horizon Length",
+ #                                      key="afc_horiz_input",
+ #                                      value=1, min_value=1)
+
+ #              with _cols[1]:
+ #                  state.freq_out_afc = \
+ #                      st.selectbox("Forecast Frequency",
+ #                          list(FREQ_MAP_AFC.keys()),
+ #                          list(FREQ_MAP_AFC.keys()).index(state.freq_out_afc) if state.freq_out_afc else 0,
+ #                          key="afc_freq_input")
+
+ #              with _cols[2]:
+ #                  st.selectbox("Algorithm", ["AutoML"], 0, key="afc_algo_input")
+
+ #              afc_form_button = st.form_submit_button("Launch")
+
+ #          # Launch Amazon Forecast job
+ #          if afc_form_button:
+ #              state.execution_arn = run_afc_state_machine(state)
+
+ #          afc_refresh_button = st.button("Refresh Job Status")
+
+ #          if state.execution_arn or afc_refresh_button:
+ #              afc_job_status = refresh_afc_state_machine_status(state)
+ #              st.markdown(f"Job Status: **{afc_job_status}**")
+
+ #  state.sync()
+ #  """
