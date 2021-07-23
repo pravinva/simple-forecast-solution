@@ -15,7 +15,8 @@ setuptools.setup(
         "cloudpickle==1.6.0",
         "plotly",
         "awswrangler",
-        "sspipe"
+        "sspipe",
+        "tabulate"
     ],
     python_requires=">=3.8",
     classifiers=[
