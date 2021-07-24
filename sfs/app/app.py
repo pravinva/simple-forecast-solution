@@ -14,6 +14,10 @@
 |___/\___/_|\_,_|\__|_\___/_||_|
 
 https://github.com/aws-samples/simple-forecat-solution/
+
+USAGE:
+    streamlit run ./app.py
+    streamlit run -- ./app.py --local-dir LOCAL_DIR
                                  
 '''
 import os
@@ -37,7 +41,7 @@ import streamlit as st
 import plotly.express as pex
 import plotly.graph_objects as go
 
-from collections import OrderedDict, namedtuple
+from collections import OrderedDict, deque, namedtuple
 from concurrent import futures
 from sspipe import p, px
 from streamlit import session_state as state
@@ -51,11 +55,13 @@ from sfs import (load_data, resample, run_pipeline, run_cv_select,
 from lambdamap import LambdaExecutor, LambdaFunction
 from streamlit.uploaded_file_manager import UploadedFile
 from streamlit.script_runner import RerunException
+from st_aggrid import AgGrid, GridOptionsBuilder
+
 
 ST_STATIC_PATH = pathlib.Path(st.__path__[0]).joinpath("static")
 ST_DOWNLOADS_PATH = ST_STATIC_PATH.joinpath("downloads")
 LAMBDAMAP_FUNC = "SfsLambdaMapFunction"
-SM_LOCAL_FILE_DIR = "/home/ec2-user/SageMaker"
+LOCAL_DIR = "/home/ec2-user/SageMaker"
 
 if not os.path.exists(ST_DOWNLOADS_PATH):
     ST_DOWNLOADS_PATH.mkdir()
@@ -166,6 +172,34 @@ def run_lambdamap(df, horiz, freq):
     return wait_for
 
 
+def display_ag_grid(df):
+    """
+    """
+
+    gb = GridOptionsBuilder.from_dataframe(df)
+    gb.configure_selection("single")
+    gb.configure_pagination(enabled=True)
+
+    AgGrid(df, gridOptions=gb.build())
+
+    return
+
+def valid_launch_freqs():
+    data_freq = state.report["data"]["freq"]
+    valid_freqs = ["D", "W", "M"]
+
+    if data_freq in ("D",):
+        pass
+    elif data_freq in ("W","W-MON",):
+        valid_freqs = valid_freqs[1:]
+    elif data_freq in ("M","MS",):
+        valid_freqs = valid_freqs[2:]
+    else:
+        raise NotImplementedError
+
+    return valid_freqs
+
+
 #
 # Panels
 #
@@ -237,87 +271,6 @@ def make_mask(df, channel, family, item_id):
     mask &= df["item_id"] == item_id
 
     return mask
-
-
-def panel_visualization(state):
-    """
-    """
-
-    df_pred = state.df_pred
-    df_results = state.df_results
-    df_top = state.df_top
-
-    channel_vals = [""] + sorted(df_results["channel"].unique())
-    family_vals = [""] + sorted(df_results["family"].unique())
-    item_id_vals = [""] + sorted(df_results["item_id"].unique())
-
-    channel_index = channel_vals.index(df_top["channel"].iloc[0])
-    family_index = family_vals.index(df_top["family"].iloc[0])
-    item_id_index = item_id_vals.index(df_top["item_id"].iloc[0])
-
-    with st.form("viz_form"):
-        st.markdown("#### Filter By")
-        _cols = st.beta_columns(3)
-
-        with _cols[0]:
-            channel_choice = st.selectbox("Channel", channel_vals, index=channel_index)
-
-        with _cols[1]:
-            family_choice = st.selectbox("Family", family_vals, index=family_index)
-
-        with _cols[2]:
-            item_id_choice = st.selectbox("Item ID", item_id_vals, index=item_id_index)
-
-        viz_form_button = st.form_submit_button("Apply")
-
-    if viz_form_button:
-        pass
-
-    results_mask = \
-        make_mask(df_results, channel_choice, family_choice, item_id_choice)
-    pred_mask = \
-        make_mask(df_pred, channel_choice, family_choice, item_id_choice)
-
-    df_plot = df_pred[pred_mask]
-
-    if len(df_plot) > 0:
-
-        # display the line chart
-        #fig = pex.line(df_plot, x="timestamp", y="demand", color="type")
-
-        y = df_plot.query("type == 'actual'")["demand"]
-        y_ts = df_plot.query("type == 'actual'")["timestamp"]
-
-        yp = df_plot.query("type == 'fcast'")["demand"]
-        yp_ts = df_plot.query("type == 'fcast'")["timestamp"]
-
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(
-            x=y_ts, y=y, mode='lines+markers', name="actual",
-            marker=dict(size=4)
-        ))
-        fig.add_trace(go.Scatter(
-            x=yp_ts, y=yp, mode='lines+markers', name="forecast", line_dash="dot",
-            marker=dict(size=4)
-        ))
-#       fig.update_layout(
-#           xaxis={
-#               "showgrid": True,
-#               "gridcolor": "lightgrey",
-#           },
-#           yaxis={
-#               "showgrid": True,
-#               "gridcolor": "lightgrey",
-#           }
-#       )
-        fig.update_layout(
-            margin={"t": 0, "b": 0, "r": 0, "l": 0},
-            height=250,
-            legend={"orientation": "h", "yanchor": "bottom", "y": 1.0, "xanchor":"left", "x": 0.0}
-        )
-        st.plotly_chart(fig, use_container_width=True)
-
-    return
 
 
 def panel_prepare_data(state):
@@ -444,7 +397,6 @@ def panel_downloads(state):
     return
 
 
-
 def panel_load_data():
     """Display the 'Load Data' panel.
 
@@ -468,7 +420,7 @@ def panel_load_data():
         _cols = st.beta_columns([3,1])
 
         with _cols[0]:
-            fn = file_selectbox("File", SM_LOCAL_FILE_DIR)
+            fn = file_selectbox("File", args.local_dir)
             btn_refresh_files = st.button("Refresh Files")
 
         with _cols[1]:
@@ -476,7 +428,35 @@ def panel_load_data():
                     format_func=lambda s: FREQ_MAP_LONG[s])
             btn_validate = st.button("Validate")
 
+        if fn is None:
+            st.warning(textwrap.dedent("""
+            **Warning**
+
+            No files were detected.
+
+            1. Upload your file(s).
+            2. Click the **Refresh files** button.
+            ⠀
+            #### 
+            """))
+
         if btn_validate:
+            if fn is None:
+                st.error(textwrap.dedent("""
+                **Error**
+
+                No files were selected.
+
+                1. Upload your file(s).
+                2. Click the **Refresh Files** button.
+                3. Select the file from the dropdown box.
+                4. Select the **Frequency**.
+                5. Click the **Validate** button.
+
+                ####
+                """))
+                st.stop()
+
             # temporarily load the file for validation and store it in state
             # iff the data is valid
             with st.spinner("Validating file ..."):
@@ -510,8 +490,6 @@ def panel_data_health():
         return
 
     with st.beta_expander("❤️ Data Health", expanded=True):
-        st.write("")
-
         with st.spinner("Performing data health check ..."):
             # check iff required
             if df_health is None:
@@ -519,6 +497,12 @@ def panel_data_health():
 
                 # save the health check results
                 state.report["data"]["df_health"] = df_health
+
+                # calc. ranked series by demand
+                state.report["data"]["df_ranks"] = \
+                    df.groupby(["channel", "family", "item_id"]) \
+                      .agg({"demand": sum}) \
+                      .sort_values(by="demand", ascending=False)
 
         num_series = df_health.shape[0]
         num_channels = df_health["channel"].nunique()
@@ -609,7 +593,7 @@ def panel_launch():
                     horiz = st.number_input("Horizon Length", value=1, min_value=1)
 
                 with _cols[1]:
-                    freq = st.selectbox("Forecast Frequency", list(FREQ_MAP.values()), 0,
+                    freq = st.selectbox("Forecast Frequency", valid_launch_freqs(), 0,
                             format_func=lambda s: FREQ_MAP_LONG[s])
 
                 with _cols[2]:
@@ -628,15 +612,16 @@ def panel_launch():
             freq_out = state.report["sfs"]["freq"]
 
             if backend == "local":
-                wait_for = \
-                    run_pipeline(df, freq_in, freq_out, obj_metric="smape_mean",
-                        cv_stride=2, backend="futures", horiz=horiz)
+                with st.spinner("🚀 Launching forecasts ..."):
+                    wait_for = \
+                        run_pipeline(df, freq_in, freq_out, obj_metric="smape_mean",
+                            cv_stride=2, backend="futures", horiz=horiz)
             else:
                 raise NotImplementedError
 
             display_progress(wait_for, "🔥 Generating forecasts")
 
-            with st.spinner("Processing forecasts ..."):
+            with st.spinner("Processing results ..."):
                 # generate the results and predictions as dataframes
                 df_results, df_preds = process_forecasts(wait_for)
 
@@ -683,7 +668,7 @@ def panel_accuracy():
         with _cols[0]:
             st.markdown("#### Parameters")
             st.text(f"Horiz. Length:\t{horiz}\n"
-                    f"Frequency:\t{freq_out}")
+                    f"Frequency:\t{FREQ_MAP_LONG[freq_out]}")
 
             st.markdown("#### Classification")
             st.text(f"Short:\t\t{df_cln.iloc[0]['frac']} %\n"
@@ -824,13 +809,222 @@ def panel_top_performers():
 
         with _cols[1]:
             st.markdown("#### Results")
-            tablefmt="simple"
-            df_grp.rename({"% total demand": "% total\ndemand"}, axis=1, inplace=True)
-            st.text("\t" +tabulate(df_grp, tablefmt=tablefmt, showindex="never", headers=df_grp.columns))
+            st.write("TODO: AgGrid here")
+
+        if False:
+            with _cols[1]:
+                st.markdown("#### Results")
+                tablefmt="simple"
+                df_grp.rename({"% total demand": "% total\ndemand"}, axis=1, inplace=True)
+                st.text("\t" +tabulate(df_grp, tablefmt=tablefmt, showindex="never", headers=df_grp.columns))
 
 
     return
 
+
+def panel_popular_items():
+    """
+    """
+
+    df = state.report["data"].get("df", None)
+
+    if df is None:
+        return
+
+    with st.beta_expander("Popular Items", expanded=True):
+        st.write("#### Placeholder")
+        st.write("TODO: AgGrid here")
+
+        return
+
+    return
+
+
+def panel_visualization():
+    """
+    """
+
+    df = state.report["data"].get("df", None)
+    df_results = state.report["sfs"].get("df_results", None)
+    df_preds = state.report["sfs"].get("df_preds", None)
+
+    if df is None or df_results is None or df_preds is None:
+        return
+
+    df_top = df.groupby(["channel", "family", "item_id"], as_index=False) \
+               .agg({"demand": sum}) \
+               .sort_values(by="demand", ascending=False)
+
+    channel_vals = [""] + sorted(df_results["channel"].unique())
+    family_vals = [""] + sorted(df_results["family"].unique())
+    item_id_vals = [""] + sorted(df_results["item_id"].unique())
+
+    channel_index = channel_vals.index(df_top["channel"].iloc[0])
+    family_index = family_vals.index(df_top["family"].iloc[0])
+    item_id_index = item_id_vals.index(df_top["item_id"].iloc[0])
+
+    with st.beta_expander("Visualization", expanded=True):
+        with st.form("viz_form"):
+            st.markdown("#### Filter By")
+            _cols = st.beta_columns(3)
+
+            with _cols[0]:
+                channel_choice = st.selectbox("Channel", channel_vals, index=channel_index)
+
+            with _cols[1]:
+                family_choice = st.selectbox("Family", family_vals, index=family_index)
+
+            with _cols[2]:
+                item_id_choice = st.selectbox("Item ID", item_id_vals, index=item_id_index)
+
+            viz_form_button = st.form_submit_button("Apply")
+
+        if viz_form_button:
+            pass
+
+        results_mask = \
+            make_mask(df_results, channel_choice, family_choice, item_id_choice)
+        pred_mask = \
+            make_mask(df_preds, channel_choice, family_choice, item_id_choice)
+
+        df_plot = df_preds[pred_mask]
+
+        if len(df_plot) > 0:
+
+            # display the line chart
+            #fig = pex.line(df_plot, x="timestamp", y="demand", color="type")
+
+            y = df_plot.query("type == 'actual'")["demand"]
+            y_ts = df_plot.query("type == 'actual'")["timestamp"]
+
+            yp = df_plot.query("type == 'fcast'")["demand"]
+            yp_ts = df_plot.query("type == 'fcast'")["timestamp"]
+
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(
+                x=y_ts, y=y, mode='lines+markers', name="actual",
+                marker=dict(size=4)
+            ))
+            fig.add_trace(go.Scatter(
+                x=yp_ts, y=yp, mode='lines+markers', name="forecast", line_dash="dot",
+                marker=dict(size=4)
+            ))
+    #       fig.update_layout(
+    #           xaxis={
+    #               "showgrid": True,
+    #               "gridcolor": "lightgrey",
+    #           },
+    #           yaxis={
+    #               "showgrid": True,
+    #               "gridcolor": "lightgrey",
+    #           }
+    #       )
+            fig.update_layout(
+                margin={"t": 0, "b": 0, "r": 0, "l": 0},
+                height=250,
+                legend={"orientation": "h", "yanchor": "bottom", "y": 1.0, "xanchor":"left", "x": 0.0}
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+    return
+
+
+#
+# ML Forecasting Panels
+#
+
+def panel_ml_launch():
+    """
+    """
+
+    df = state.report["data"].get("df", None)
+
+    if df is None:
+        return
+
+    with st.beta_expander("Launch"):
+        with st.form("ml_form"):
+            _cols = st.beta_columns(3)
+
+            with _cols[0]:
+                horiz = st.number_input("Horizon Length", key="ml_horiz_input",
+                                        value=1, min_value=1)
+
+            with _cols[1]:
+                freq = st.selectbox("Forecast Frequency",
+                    valid_launch_freqs(), 0,
+                    format_func=lambda s: FREQ_MAP_LONG[s], key="ml_freq_input")
+
+            with _cols[2]:
+                st.selectbox("Algorithm", ["AutoML"], 0, key="ml_algo_input")
+
+            ml_form_button = st.form_submit_button("Launch")
+
+        # Launch Amazon Forecast job
+        if ml_form_button:
+            state.report["afc"]["horiz"] = horiz
+            state.report["afc"]["freq"] = freq
+            state.report["afc"]["execution_arn"] = run_ml_state_machine()
+
+        ml_refresh_button = st.button("Refresh Job Status")
+
+        if state.report["afc"].get("execution_arn", None) or ml_refresh_button:
+            ml_job_status = refresh_ml_state_machine_status()
+            st.markdown(f"Job Status: **{ml_job_status}**")
+
+    return
+    if state.is_valid_file and state.df is not None:
+        with st.beta_expander("8 - Amazon Forecast (optional)"):
+            st.markdown("")
+            with st.form("afc_form"):
+                _cols = st.beta_columns(3)
+
+                with _cols[0]:
+                    state.horiz_afc = \
+                        st.number_input("Horizon Length",
+                                        key="afc_horiz_input",
+                                        value=1, min_value=1)
+
+                with _cols[1]:
+                    state.freq_out_afc = \
+                        st.selectbox("Forecast Frequency",
+                            list(FREQ_MAP_AFC.keys()),
+                            list(FREQ_MAP_AFC.keys()).index(state.freq_out_afc) if state.freq_out_afc else 0,
+                            key="afc_freq_input")
+
+                with _cols[2]:
+                    st.selectbox("Algorithm", ["AutoML"], 0, key="afc_algo_input")
+
+                #st.text_input("State Machine ARN", args.ml_state_machine_arn)
+
+                ml_form_button = st.form_submit_button("Launch")
+
+            # Launch Amazon Forecast job
+            if afc_form_button:
+                state.execution_arn = run_ml_state_machine(state)
+
+            afc_refresh_button = st.button("Refresh Job Status")
+
+            if state.execution_arn or afc_refresh_button:
+                afc_job_status = refresh_afc_state_machine_status(state)
+                st.markdown(f"Job Status: **{afc_job_status}**")
+
+    return
+
+
+def panel_ml_forecast_summary():
+    """
+    """
+
+    df = state.report["data"].get("df", None)
+
+    if df is None:
+        return
+
+    with st.beta_expander("Forecast Summary"):
+        pass
+
+    return
 
 #
 # Pages
@@ -1189,14 +1383,19 @@ def page_view_report(state):
 #
 #    return
 
-def run_afc_state_machine(state):
+def run_ml_state_machine():
     """Execute the Amazon Forecast state machine.
 
     """
     PD_TIMESTAMP_FMT = "%Y-%m-%d"
     AFC_TIMESTAMP_FMT = "yyyy-MM-dd"
-    AFC_FORECAST_HORIZON = state.horiz_afc
-    AFC_FORECAST_FREQUENCY = FREQ_MAP_AFC[state.freq_out_afc]
+    AFC_FORECAST_HORIZON = state.report["afc"]["horiz"]
+    AFC_FORECAST_FREQUENCY = state.report["afc"]["freq"]
+
+    df = state.report["data"].get("df", None)
+    fn = state.report["data"]["path"]
+
+    assert(df is not None)
 
     # state.df is already resampled to same frequency as the forecast freq.
     AFC_DATASET_FREQUENCY = AFC_FORECAST_FREQUENCY
@@ -1217,8 +1416,8 @@ def run_afc_state_machine(state):
         ssm_client.get_parameter(Name="SfsS3OutputPath")["Parameter"]["Value"].rstrip("/")
 
     # generate amazon forecast compatible data
-    with st.spinner("Launching Amazon Forecast Job"):
-        df_afc = state.df \
+    with st.spinner("Launching Amazon Forecast job ..."):
+        df_afc = df \
             | px.reset_index() \
             | px.rename({"index": "timestamp"}, axis=1) \
             | px.assign(item_id=px["channel"] + "@@" + px["family"] + "@@" + px["item_id"]) \
@@ -1228,7 +1427,7 @@ def run_afc_state_machine(state):
         df_afc["timestamp"] = \
             pd.DatetimeIndex(df_afc["timestamp"]).strftime("%Y-%m-%d") 
         afc_input_fn = \
-            re.sub("(.csv.gz)", ".csv", os.path.basename(state.uploaded_file_name))
+            re.sub("(.csv.gz)", ".csv", os.path.basename(fn))
         s3_input_path = f"{s3_input_path}/{afc_input_fn}"
 
         # upload the input csv to s3
@@ -1236,6 +1435,7 @@ def run_afc_state_machine(state):
 
         # upload local re-sampled csv file to s3 input path
         client = boto3.client("stepfunctions")
+
         resp = client.start_execution(
             stateMachineArn=state_machine_arn,
             input=json.dumps({
@@ -1251,11 +1451,11 @@ def run_afc_state_machine(state):
     return resp["executionArn"]
 
 
-def refresh_afc_state_machine_status(state):
+def refresh_ml_state_machine_status():
     """
     """
     client = boto3.client("stepfunctions")
-    resp = client.describe_execution(executionArn=state.execution_arn)
+    resp = client.describe_execution(executionArn=state.report["afc"]["execution_arn"])
     return resp["status"]
 
 
@@ -1277,15 +1477,21 @@ def file_selectbox(label, folder):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--local-file-dir", type=str,
+
+    parser.add_argument("--local-dir", type=str,
         help="/path/to local folder to store input/output files.",
         default=os.path.expanduser("~/SageMaker/"))
+
     parser.add_argument("--lambdamap-function", type=str,
         help="ARN/name of the lambdamap function",
         default="SfsLambdaMapFunction")
+
+#   parser.add_argument("--ml-state-machine-arn", type=str,
+#       help="ARN of the ML state machine", default=None)
+
     args = parser.parse_args()
 
-    assert(os.path.exists(args.local_file_dir))
+    assert(os.path.exists(os.path.expanduser(args.local_dir)))
 
     #st.set_page_config(layout="wide")
 
@@ -1316,9 +1522,19 @@ if __name__ == "__main__":
 
     panel_load_data()
     panel_data_health()
+
+    st.header("Statistical Forecasting")
+
     panel_launch()
     panel_accuracy()
     panel_top_performers()
+    panel_popular_items()
+    panel_visualization()
+
+    st.header("ML Forecasting")
+
+    panel_ml_launch()
+    panel_ml_forecast_summary()
 
 #   if state.report["data"]:
 #       btn_validate_data = panel_validate_data(state)
@@ -1499,42 +1715,6 @@ if __name__ == "__main__":
 ##      with st.beta_expander("7 – Downloads", expanded=True):
 ##          panel_downloads(state)
 
- #  #
- #  # Amazon Forecast Panel
- #  #
- #  if state.is_valid_file and state.df is not None:
- #      with st.beta_expander("8 - Amazon Forecast (optional)"):
- #          st.markdown("")
- #          with st.form("afc_form"):
- #              _cols = st.beta_columns(3)
-
- #              with _cols[0]:
- #                  state.horiz_afc = \
- #                      st.number_input("Horizon Length",
- #                                      key="afc_horiz_input",
- #                                      value=1, min_value=1)
-
- #              with _cols[1]:
- #                  state.freq_out_afc = \
- #                      st.selectbox("Forecast Frequency",
- #                          list(FREQ_MAP_AFC.keys()),
- #                          list(FREQ_MAP_AFC.keys()).index(state.freq_out_afc) if state.freq_out_afc else 0,
- #                          key="afc_freq_input")
-
- #              with _cols[2]:
- #                  st.selectbox("Algorithm", ["AutoML"], 0, key="afc_algo_input")
-
- #              afc_form_button = st.form_submit_button("Launch")
-
- #          # Launch Amazon Forecast job
- #          if afc_form_button:
- #              state.execution_arn = run_afc_state_machine(state)
-
- #          afc_refresh_button = st.button("Refresh Job Status")
-
- #          if state.execution_arn or afc_refresh_button:
- #              afc_job_status = refresh_afc_state_machine_status(state)
- #              st.markdown(f"Job Status: **{afc_job_status}**")
 
  #  state.sync()
  #  """
