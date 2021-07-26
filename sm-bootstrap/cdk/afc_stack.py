@@ -16,6 +16,18 @@ from aws_cdk import (
 
 PWD = os.path.dirname(os.path.realpath(__file__))
 
+POSTPROCESS_LAMBDA_INLINE = '''import os
+import boto3
+import awswrangler as wr
+
+
+def lambda_handler(event, context):
+    """
+    """
+
+    return
+'''
+
 # This is the lambda that sends the notification email to the user once
 # the dashboard is deployed, it contains the URL to the landing page
 # sagemaker notebook.
@@ -207,6 +219,19 @@ class AfcStack(cdk.Stack):
             errors=["ResourceInUseException",
                     "ResourcePendingException"])
 
+        #
+        # POSTPROCESS FORECAST EXPORT FILE(s)
+        #
+        postprocess_lambda_function = \
+            lambda_.Function(self, 
+                id=f"{construct_id}-PostProcessLambda",
+                code=lambda_.EcrImageCode.from_asset_image(
+                    directory=os.path.join(PWD, "afc_lambdas", "postprocess")),
+                handler=lambda_.Handler.FROM_IMAGE,
+                runtime=lambda_.Runtime.FROM_IMAGE,
+                function_name=f"{construct_id}-PostProcessLambda",
+                memory_size=10240,
+                timeout=core.Duration.seconds(900))
         #
         # SNS EMAIL
         #
