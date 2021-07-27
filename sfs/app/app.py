@@ -763,7 +763,7 @@ def panel_top_performers():
     if df is None or df_results is None:
         return
 
-    with st.beta_expander("🏆 Top Performers", expanded=False):
+    with st.beta_expander("🏆 Top Performers", expanded=True):
         st.write("#### Filters")
 
         _cols = st.beta_columns(3)
