@@ -318,4 +318,4 @@ def delete_afc_resources_handler(event, context):
     update_status_json(payload, "DONE:delete_afc_resources",
         payload["StatusJsonS3Path"])
 
-    return
+    return payload

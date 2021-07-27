@@ -53,6 +53,7 @@ from sfs import (load_data, resample, run_pipeline, run_cv_select,
     make_health_summary, GROUP_COLS, EXP_COLS)
 
 from lambdamap import LambdaExecutor, LambdaFunction
+from awswrangler.exceptions import NoFilesFound
 from streamlit.uploaded_file_manager import UploadedFile
 from streamlit.script_runner import RerunException
 from st_aggrid import AgGrid, GridOptionsBuilder
@@ -285,9 +286,9 @@ def make_mask(df, channel, family, item_id):
     if channel == "" or family == "" or item_id == "":
         return ~mask
 
-    mask &= df["channel"] == channel
-    mask &= df["family"] == family
-    mask &= df["item_id"] == item_id
+    mask &= df["channel"].str.upper() == channel.upper()
+    mask &= df["family"].str.upper() == family.upper()
+    mask &= df["item_id"].str.upper() == item_id.upper()
 
     return mask
 
@@ -1012,7 +1013,7 @@ def panel_visualization():
 #
 # ML Forecasting Panels
 #
-def parse_status_json(path):
+def parse_s3_json(path):
     """
     """
 
@@ -1086,6 +1087,38 @@ def panel_ml_launch():
 
                 ml_stop_button = st.button("Stop Job")
 
+                if state.report["afc"].get("status_json_s3_path", None):
+                    status_dict = parse_s3_json(state.report["afc"]["status_json_s3_path"])
+                    prefix = status_dict["prefix"]
+                    s3_export_path = status_dict["s3_export_path"]
+
+                    preds_s3_prefix = \
+                        f'{s3_export_path}/{prefix}/{prefix}_processed.csv'
+                    results_s3_prefix = \
+                        f'{s3_export_path}/{prefix}/accuracy-metrics-values/Accuracy_{prefix}_*.csv'
+
+                    try:
+                        df_results = wr.s3.read_csv(results_s3_prefix,
+                            dtype={"channel": str, "family": str, "item_id": str})
+                        df_results[["channel", "family", "item_id"]] = \
+                            df_results["item_id"].str.split("@@", expand=True)
+                        state.report["afc"]["df_results"] = df_results
+                        state.report["afc"]["results_s3_prefix"] = results_s3_prefix
+                    except NoFilesFound:
+                        st.warning("The forecast results file is not yet ready.")
+
+                    try:
+                        df_preds = wr.s3.read_csv(preds_s3_prefix,
+                            dtype={"channel": str, "family": str, "item_id": str})
+                        df_preds["type"] = "fcast"
+
+                        df_preds = df_preds.append(df.reset_index().assign(type='actual'))
+
+                        state.report["afc"]["df_preds"] = df_preds
+                        state.report["afc"]["preds_s3_prefix"] = preds_s3_prefix
+                    except NoFilesFound:
+                        st.warning("The forecast predictions file is not yet ready.")
+
             if ml_stop_button:
                 sfn_client = boto3.client("stepfunctions")
                 resp = sfn_client.stop_execution(executionArn=execution_arn)
@@ -1099,14 +1132,120 @@ def panel_ml_forecast_summary():
     """
 
     df = state.report["data"].get("df", None)
+    df_results = state.report["afc"].get("df_results", None)
 
-    if df is None:
+    if df is None or df_results is None:
         return
 
-    with st.beta_expander("Forecast Summary", expanded=True):
-        ml_refresh_summary_button = st.button("Refresh")
+    with st.beta_expander("Forecast Summary", expanded=False):
+        ml_acc = 100 - np.nanmean(df_results.query("backtest_window == 'Summary'")["WAPE"].clip(0,100))
+
+        _cols = st.beta_columns(3)
+
+        with _cols[0]:
+            st.markdown("#### Overall Accuracy")
+            st.markdown(
+                f"<div style='font-size:36pt;font-weight:bold'>{ml_acc:.0f}%</div>",
+                unsafe_allow_html=True)
+
+        with _cols[1]:
+            pass
+
+        with _cols[2]:
+            pass
 
     return
+
+
+def panel_ml_visualization():
+    """
+    """
+
+    df = state.report["data"].get("df", None)
+    df_ml_results = state.report["afc"].get("df_results", None)
+    df_ml_preds = state.report["afc"].get("df_preds", None)
+
+    if df is None or df_ml_results is None or df_ml_preds is None:
+        return
+
+    df_top = df.groupby(["channel", "family", "item_id"], as_index=False) \
+               .agg({"demand": sum}) \
+               .sort_values(by="demand", ascending=False)
+
+    channel_vals = [""] + sorted(df_ml_results["channel"].unique())
+    family_vals = [""] + sorted(df_ml_results["family"].unique())
+    item_id_vals = [""] + sorted(df_ml_results["item_id"].unique())
+
+    channel_index = channel_vals.index(df_top["channel"].iloc[0])
+    family_index = family_vals.index(df_top["family"].iloc[0])
+    item_id_index = item_id_vals.index(df_top["item_id"].iloc[0])
+
+    with st.beta_expander("👁️  Visualization", expanded=True):
+        with st.form("ml_viz_form"):
+            st.markdown("#### Filter By")
+            _cols = st.beta_columns(3)
+
+            with _cols[0]:
+                channel_choice = st.selectbox("Channel", channel_vals, index=channel_index, key="ml_results_channel")
+
+            with _cols[1]:
+                family_choice = st.selectbox("Family", family_vals, index=family_index, key="ml_results_family")
+
+            with _cols[2]:
+                item_id_choice = st.selectbox("Item ID", item_id_vals, index=item_id_index, key="ml_results_item")
+
+            viz_form_button = st.form_submit_button("Apply")
+
+        if viz_form_button:
+            pass
+
+        results_mask = \
+            make_mask(df_ml_results, channel_choice, family_choice, item_id_choice)
+        pred_mask = \
+            make_mask(df_ml_preds, channel_choice, family_choice, item_id_choice)
+
+        df_plot = df_ml_preds[pred_mask]
+        print(df_plot)
+
+        if len(df_plot) > 0:
+
+            # display the line chart
+            #fig = pex.line(df_plot, x="timestamp", y="demand", color="type")
+
+            y = df_plot.query("type == 'actual'")["demand"]
+            y_ts = df_plot.query("type == 'actual'")["timestamp"]
+
+            yp = df_plot.query("type == 'fcast'")["demand"]
+            yp_ts = df_plot.query("type == 'fcast'")["timestamp"]
+
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(
+                x=y_ts, y=y, mode='lines+markers', name="actual",
+                marker=dict(size=4)
+            ))
+            fig.add_trace(go.Scatter(
+                x=yp_ts, y=yp, mode='lines+markers', name="forecast", line_dash="dot",
+                marker=dict(size=4)
+            ))
+    #       fig.update_layout(
+    #           xaxis={
+    #               "showgrid": True,
+    #               "gridcolor": "lightgrey",
+    #           },
+    #           yaxis={
+    #               "showgrid": True,
+    #               "gridcolor": "lightgrey",
+    #           }
+    #       )
+            fig.update_layout(
+                margin={"t": 0, "b": 0, "r": 0, "l": 0},
+                height=250,
+                legend={"orientation": "h", "yanchor": "bottom", "y": 1.0, "xanchor":"left", "x": 0.0}
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+    return
+
 
 #
 # Pages
@@ -1506,7 +1645,7 @@ def refresh_ml_state_machine_status():
     resp = sfn_client.describe_execution(
         executionArn=state.report["afc"]["execution_arn"])
     sfn_status = resp["status"]
-    status_dict = parse_status_json(state.report["afc"]["status_json_s3_path"])
+    status_dict = parse_s3_json(state.report["afc"]["status_json_s3_path"])
     return sfn_status, status_dict
 
 
@@ -1579,6 +1718,7 @@ if __name__ == "__main__":
 
     panel_ml_launch()
     panel_ml_forecast_summary()
+    panel_ml_visualization()
 
     with st.beta_expander("Downloads", expanded=True):
         ml_downloads_button = \

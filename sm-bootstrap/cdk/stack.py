@@ -167,6 +167,11 @@ class SfsStack(cdk.Stack):
         # SSM Parameter Store
         #
         ssm_s3_input_path_param = ssm.StringParameter(self,
+                "SfsSsmS3Bucket",
+                string_value=bucket.bucket_name,
+                parameter_name="SfsS3Bucket")
+
+        ssm_s3_input_path_param = ssm.StringParameter(self,
                 "SfsSsmS3InputPath",
                 string_value=f"s3://{bucket.bucket_name}/input/",
                 parameter_name="SfsS3InputPath")
