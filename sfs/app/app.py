@@ -75,6 +75,15 @@ FREQ_MAP_LONG = {
     "MS": "Monthly"
 }
 
+FREQ_MAP_PD = {
+    "D": "D",
+    "W": "W-MON",
+    "W-SUN": "W-MON",
+    "W-MON": "W-MON",
+    "M": "MS",
+    "MS": "MS"
+}
+
 
 def validate(df):
     """Validate a dataset.
@@ -160,18 +169,7 @@ def run_lambdamap(df, horiz, freq):
 
     payloads = []
 
-    # resample the data frequency
-    freq_map = {
-        "D": "D",
-        "W": "W-MON",
-        "W-SUN": "W-MON",
-        "W-MON": "W-MON",
-        "M": "MS",
-        "MS": "MS"
-    }
-
-    freq = freq_map[freq]
-
+    freq = FREQ_MAP_PD[freq]
     df2 = load_data(df, freq)
 
     groups = df2.groupby(GROUP_COLS, as_index=False, sort=False)
@@ -223,62 +221,6 @@ def valid_launch_freqs():
 #
 # Panels
 #
-def panel_launch_forecast(state):
-    """
-    """
-
-    with st.beta_container():
-        st.subheader("Step 2: Launch Forecast")
-
-        with st.form("form_create_forecast"):
-            _cols = st.beta_columns(2)
-
-            with _cols[0]:
-                horiz = st.number_input("Forecast horizon length", min_value=1)
-
-            with _cols[1]:
-                freq_out = st.selectbox("Forecast Frequency", list(FREQ_MAP.keys()))
-
-            create_forecast_button = st.form_submit_button("Launch")
-
-
-    if create_forecast_button:
-        state.horiz = horiz
-        state.freq_out = freq_out
-        wait_for = \
-            run_pipeline(state.df, FREQ_MAP[state.freq_in],
-                FREQ_MAP[state.freq_out], obj_metric="smape_mean", cv_stride=4,
-                backend="futures", horiz=state.horiz)
-
-        display_progress(wait_for)
-
-        # aggregate the forecasts
-        raw_results = [f.result() for f in futures.as_completed(wait_for)]
-
-        pred_lst = []
-        results_lst = []
-
-        for df_pred, df_results in raw_results:
-            pred_lst.append(df_pred)
-            results_lst.append(df_results)
-
-        # results dataframe
-        state.df_results = pd.concat(results_lst) \
-                             .reset_index(drop=True)
-
-        # predictions dataframe
-        state.df_pred = pd.concat(pred_lst)
-        state.df_pred.index.name = "timestamp"
-        state.df_pred.reset_index(inplace=True)
-
-        # analysis dataframes
-        state.df_demand_cln = \
-            make_demand_classification(state.df, FREQ_MAP[state.freq_out])
-        state.perf_summary = make_perf_summary(state.df_results)
-
-    return
-
-
 def make_mask(df, channel, family, item_id):
     mask = np.ones(len(df)).astype(bool)
 
@@ -291,37 +233,6 @@ def make_mask(df, channel, family, item_id):
     mask &= df["item_id"].str.upper() == item_id.upper()
 
     return mask
-
-
-def panel_prepare_data(state):
-    """
-    """
-
-    st.markdown(textwrap.dedent("""
-    #### Input Data Description
-
-    The input data must be in the form of a single CSV (`.csv`) or
-    GZipped CSV (`.csv.gz`) file with the following columns:
-
-    `timestamp` – date of the demand in the format `%Y-%m-%d`  
-    `channel` – platform/store where the demand/sale originated  
-    `family` – item family or category  
-    `item_id` – unique identifier/SKU of the item  
-    `demand` – demand for the item
-
-    Each row indicates the demand for a particular item for a given date. 
-    Each timeseries is identified by its `channel`, `family`, and `item_id`.
-
-    #### Example
-
-    ```
-    timestamp,channel,family,item_id,demand
-    2018-07-02,Website,Shirts,SKU29292,254
-    2018-07-03,Store,Footwear,SKU29293,413
-    ...
-    ```"""))
-
-    return
 
 
 def panel_forecast_summary():
@@ -741,7 +652,7 @@ def panel_accuracy():
                 width=200,
                 height=150,
             )
-            fig.update_traces(textinfo="percent+label")
+            fig.update_traces(textinfo="percent+label", texttemplate="%{label} – %{percent:.1%f}")
             st.plotly_chart(fig)
 
         # calc. overall accuracy (runtime)
@@ -1032,7 +943,6 @@ def parse_s3_json(path):
 def panel_ml_launch():
     """
     """
-
     df = state.report["data"].get("df", None)
 
     if df is None:
@@ -1112,7 +1022,11 @@ def panel_ml_launch():
                             dtype={"channel": str, "family": str, "item_id": str})
                         df_preds["type"] = "fcast"
 
-                        df_preds = df_preds.append(df.reset_index().assign(type='actual'))
+                        df_preds = df_preds.append(
+                            load_data(df, FREQ_MAP_PD[state.report["afc"]["freq"]])
+                                .reset_index()
+                                .rename({"index": "timestamp"}, axis=1)
+                                .assign(type='actual'))
 
                         state.report["afc"]["df_preds"] = df_preds
                         state.report["afc"]["preds_s3_prefix"] = preds_s3_prefix

@@ -56,6 +56,7 @@ pip install -q -e .
 
 git clone https://github.com/aws-samples/simple-forecast-solution.git
 cd ./simple-forecast-solution/
+git checkout develop
 pip install -q -e .
 
 nohup streamlit run -- ./sfs/app/app.py --local-file-dir /home/ec2-user/SageMaker/ &
@@ -98,7 +99,7 @@ pip install -q -r ./requirements.txt
 nohup cdk deploy --require-approval never \
     --context stack_name={sfs_lambdamap_stack_name} \
     --context function_name=SfsLambdaMapFunction \
-    --context extra_cmds='pip install -q git+https://github.com/aws-samples/simple-forecast-solution.git#egg=sfs' &
+    --context extra_cmds='git clone https://github.com/aws-samples/simple-forecast-solution.git ; cd ./simple-forecast-solution/ ; git checkout develop ; pip install -e .' &
 
 #
 # Upgrade jupyter-server-proxy

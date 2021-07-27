@@ -16,7 +16,8 @@ setuptools.setup(
         "plotly",
         "awswrangler",
         "sspipe",
-        "humanfriendly"
+        "humanfriendly",
+        "streamlit-aggrid"
     ],
     python_requires=">=3.8",
     classifiers=[

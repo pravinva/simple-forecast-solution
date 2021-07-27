@@ -16,18 +16,6 @@ from aws_cdk import (
 
 PWD = os.path.dirname(os.path.realpath(__file__))
 
-POSTPROCESS_LAMBDA_INLINE = '''import os
-import boto3
-import awswrangler as wr
-
-
-def lambda_handler(event, context):
-    """
-    """
-
-    return
-'''
-
 # This is the lambda that sends the notification email to the user once
 # the dashboard is deployed, it contains the URL to the landing page
 # sagemaker notebook.
