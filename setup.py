@@ -16,7 +16,7 @@ setuptools.setup(
         "plotly",
         "awswrangler",
         "sspipe",
-        "tabulate"
+        "humanfriendly"
     ],
     python_requires=">=3.8",
     classifiers=[

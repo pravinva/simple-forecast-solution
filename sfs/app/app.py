@@ -47,8 +47,8 @@ from urllib.parse import urlparse
 from sspipe import p, px
 from streamlit import session_state as state
 from stqdm import stqdm
-from tabulate import tabulate
 from sfs import (load_data, resample, run_pipeline, run_cv_select,
+    calc_smape,
     make_demand_classification, process_forecasts, make_perf_summary,
     make_health_summary, GROUP_COLS, EXP_COLS)
 
@@ -56,6 +56,7 @@ from lambdamap import LambdaExecutor, LambdaFunction
 from streamlit.uploaded_file_manager import UploadedFile
 from streamlit.script_runner import RerunException
 from st_aggrid import AgGrid, GridOptionsBuilder
+from humanfriendly import format_timespan
 
 
 ST_STATIC_PATH = pathlib.Path(st.__path__[0]).joinpath("static")
@@ -157,7 +158,22 @@ def run_lambdamap(df, horiz, freq):
     """
 
     payloads = []
-    groups = df.groupby(GROUP_COLS, as_index=False, sort=False)
+
+    # resample the data frequency
+    freq_map = {
+        "D": "D",
+        "W": "W-MON",
+        "W-SUN": "W-MON",
+        "W-MON": "W-MON",
+        "M": "MS",
+        "MS": "MS"
+    }
+
+    freq = freq_map[freq]
+
+    df2 = load_data(df, freq)
+
+    groups = df2.groupby(GROUP_COLS, as_index=False, sort=False)
 
     # generate payload
     for _, dd in groups:
@@ -172,13 +188,14 @@ def run_lambdamap(df, horiz, freq):
     return wait_for
 
 
-def display_ag_grid(df):
+def display_ag_grid(df, auto_height=False, pagination=False):
     """
     """
 
     gb = GridOptionsBuilder.from_dataframe(df)
-    gb.configure_selection("single")
-    gb.configure_pagination(enabled=True)
+    #gb.configure_selection("single")
+    gb.configure_auto_height(auto_height)
+    gb.configure_pagination(enabled=pagination)
 
     AgGrid(df, gridOptions=gb.build())
 
@@ -190,7 +207,8 @@ def valid_launch_freqs():
     valid_freqs = ["D", "W", "M"]
 
     if data_freq in ("D",):
-        pass
+        # don't allow daily forecasting yet
+        valid_freqs = valid_freqs[1:]
     elif data_freq in ("W","W-MON",):
         valid_freqs = valid_freqs[1:]
     elif data_freq in ("M","MS",):
@@ -442,6 +460,8 @@ def panel_load_data():
             """))
 
         if btn_validate:
+            start = time.time()
+
             if fn is None:
                 st.error(textwrap.dedent("""
                 **Error**
@@ -461,7 +481,6 @@ def panel_load_data():
             # temporarily load the file for validation and store it in state
             # iff the data is valid
             with st.spinner("Validating file ..."):
-                time.sleep(1.5)
                 #df, msgs, is_valid_file = validate(_load_data(fn))
                 df, msgs, is_valid_file = validate(_load_data(fn))#.drop(["timestamp", "channel"], axis=1))
 
@@ -472,9 +491,16 @@ def panel_load_data():
                     state.report["data"]["freq"] = freq
                     state.report["data"]["df"] = \
                         load_data(df, impute_freq=state.report["data"]["freq"])
+
+                    # clear any existing data health check results, this forces
+                    # a rechecking of data health
+                    state.report["data"]["df_health"] = None
+
+                    st.text(f"(completed in {format_timespan(time.time() - start)})")
             else:
                 err_bullets = "\n".join("- " + s for s in msgs["errors"])
                 st.error(f"**Validation failed**\n\n{err_bullets}")
+
 
     return
 
@@ -492,6 +518,8 @@ def panel_data_health():
 
     with st.beta_expander("❤️ Data Health", expanded=True):
         with st.spinner("Performing data health check ..."):
+            start = time.time()
+
             # check iff required
             if df_health is None:
                 df_health = make_health_summary(df, state.report["data"]["freq"])
@@ -562,6 +590,8 @@ def panel_data_health():
 
                 st.plotly_chart(fig, use_container_width=True)
 
+            st.text(f"(completed in {format_timespan(time.time() - start)})")
+
     return
 
 
@@ -612,19 +642,30 @@ def panel_launch():
             freq_in = state.report["data"]["freq"]
             freq_out = state.report["sfs"]["freq"]
 
-            if backend == "local":
-                with st.spinner("🚀 Launching forecasts ..."):
+#           if backend == "lambdamap":
+#               emoji = "λ"
+#           elif backend == "local":
+#               emoji = ":computer:"
+#           else:
+#               raise NotImplementedError
+
+            start = time.time()
+
+            with st.spinner(f":rocket: Launching forecasts ..."):
+                if backend == "local":
                     wait_for = \
                         run_pipeline(df, freq_in, freq_out, obj_metric="smape_mean",
                             cv_stride=2, backend="futures", horiz=horiz)
-            elif backend == "lambdamap":
-                wait_for = run_lambdamap(df, horiz, freq_out)
-            else:
-                raise NotImplementedError
+                elif backend == "lambdamap":
+                    wait_for = run_lambdamap(df, horiz, freq)
+                else:
+                    raise NotImplementedError
 
             display_progress(wait_for, "🔥 Generating forecasts")
 
             with st.spinner("Processing results ..."):
+                raw_results = [f.result() for f in futures.as_completed(wait_for)]
+
                 # generate the results and predictions as dataframes
                 df_results, df_preds = process_forecasts(wait_for)
 
@@ -635,6 +676,11 @@ def panel_launch():
             state.report["sfs"]["df_results"] = df_results
             state.report["sfs"]["df_preds"] = df_preds
             state.report["sfs"]["df_demand_cln"] = df_demand_cln
+
+            #import cloudpickle
+            #cloudpickle.dump(df_results, open("/tmp/df_results.pkl", "wb"))
+
+            st.text(f"(completed in {format_timespan(time.time() - start)})")
 
     return
 
@@ -715,6 +761,23 @@ def panel_accuracy():
 def make_df_top(df, df_results, col, dt_start, dt_stop, cperc_thresh):
     """
     """
+
+    def calc_period_metrics(dd, dt_start, dt_stop):
+        """
+        """
+        
+        dt_start = pd.Timestamp(dt_start)
+        dt_stop = pd.Timestamp(dt_stop)
+        ts = np.hstack(dd["ts_cv"].apply(np.hstack))
+        ix = (ts >= dt_start) & (ts <= dt_stop)
+            
+        ys = np.hstack(dd["y_cv"].apply(np.hstack))[ix]
+        yp = np.hstack(dd["yp_cv"].apply(np.hstack))[ix]
+        
+        smape = calc_smape(ys, yp)
+            
+        return smape
+
     metric = "smape_mean"
     df.index.name = "timestamp"
 
@@ -728,34 +791,43 @@ def make_df_top(df, df_results, col, dt_start, dt_stop, cperc_thresh):
         df2 \
         | px.groupby(col, as_index=False) \
         | px.agg({"demand": sum}) \
-        | px.assign(perc=np.round(px["demand"] / total_demand * 100, 1))
+        | px.assign(perc=px["demand"] / total_demand * 100)
 
     # get the best models for each group
     df_grp_metrics = \
-        df_results \
-        | px.query("rank == 1") \
-        | px.dropna(how="any") \
+        df_results.query("rank == 1") \
         | px.groupby(col, as_index=False) \
-        | px.agg({metric: "mean"}) \
-        | px.assign(accuracy=np.round(100 * (1-px["smape_mean"]), 0)) \
-        | px.drop([metric], axis=1)
+        | px.apply(lambda dd: calc_period_metrics(dd, dt_start, dt_stop)) \
+        | p(pd.DataFrame) \
+        | px.rename({None: "smape"}, axis=1) \
+        | px.reset_index() \
+        | px.assign(accuracy=100 * (1-px["smape"])) \
+        | px.drop(["index", "smape"], axis=1)
 
     # combine, sort, and display
     df_grp = df_grp_demand \
         | px.merge(df_grp_metrics, on=col, how="left") \
         | px.sort_values(by="demand", ascending=False) \
-        | px.assign(cperc=px["perc"].cumsum().round(0)) \
+        | px.assign(cperc=px["perc"].cumsum()) \
         | px.query(f"cperc <= {cperc_thresh}") \
-        | px.rename({"perc": "% total demand"}, axis=1) \
+        | px.assign(perc=px["perc"]) \
+        | px.rename({"perc": "% total demand", "accuracy": "% accuracy"}, axis=1) \
         | px.drop("cperc", axis=1)
 
     # calc. summary row
     df_grp_summary = df_grp \
-        | px.agg({"demand": sum, "accuracy": "mean"})
+        | px.agg({"demand": sum, "% accuracy": "mean"})
 
     df_grp_summary["% total demand"] = np.round(100 * df_grp_summary["demand"] / total_demand, 1)
-    df_grp_summary = pd.DataFrame(df_grp_summary).T[["demand", "% total demand", "accuracy"]]
+    df_grp_summary = pd.DataFrame(df_grp_summary).T[["demand", "% total demand", "% accuracy"]]
     df_grp_summary.insert(0, "column", col)
+    df_grp_summary["% accuracy"] = df_grp_summary["% accuracy"].round(0)
+
+    df_grp["demand"] = df_grp["demand"].round(0)
+    df_grp["% total demand"] = df_grp["% total demand"].round(1)
+    df_grp["% accuracy"] = df_grp["% accuracy"].round(0)
+    df_grp_summary["demand"] = df_grp_summary["demand"].round(0)
+    df_grp_summary["% total demand"] = df_grp_summary["% total demand"].round(1)
     
     return df_grp, df_grp_summary
 
@@ -773,7 +845,9 @@ def panel_top_performers():
     if df is None or df_results is None:
         return
 
-    with st.beta_expander("🏆 Top Performers", expanded=True):
+    with st.beta_expander("🏆 Top Performers", expanded=False):
+        st.write("#### Filters")
+
         _cols = st.beta_columns(3)
 
         dt_min = df.index.min()
@@ -792,12 +866,14 @@ def panel_top_performers():
         dt_start = dt_start.strftime("%Y-%m-%d")
         dt_stop = dt_stop.strftime("%Y-%m-%d")
 
+        start = time.time()
+
         with st.spinner("Processing top performers ..."):
             df_grp, df_grp_summary = make_df_top(df, df_results, col, dt_start, dt_stop, cperc_thresh)
 
-        mean_acc = df_grp_summary["accuracy"].values[0]
-        total_demand = df_grp_summary["demand"].values[0]
-        perc_demand = df_grp_summary["% total demand"].values[0]
+#       mean_acc = df_grp_summary["accuracy"].values[0]
+#       total_demand = df_grp_summary["demand"].values[0]
+#       perc_demand = df_grp_summary["% total demand"].values[0]
 
 #       _cols = st.beta_columns([1,2])
 
@@ -812,15 +888,16 @@ def panel_top_performers():
 #       with _cols[1]:
 #           st.markdown("#### Results")
 #           display_ag_grid(df_grp)
-        display_ag_grid(df_grp)
+        st.write("#### Summary")
 
-        if False:
-            with _cols[1]:
-                st.markdown("#### Results")
-                tablefmt="simple"
-                df_grp.rename({"% total demand": "% total\ndemand"}, axis=1, inplace=True)
-                st.text("\t" +tabulate(df_grp, tablefmt=tablefmt, showindex="never", headers=df_grp.columns))
+        with st.spinner("Loading **Summary** table"):
+            display_ag_grid(df_grp_summary, auto_height=True)
 
+        st.write("#### Groups")
+        with st.spinner("Loading **Groups** table ..."):
+            display_ag_grid(df_grp, pagination=True)
+
+        st.text(f"(completed in {format_timespan(time.time() - start)})")
 
     return
 
@@ -866,7 +943,7 @@ def panel_visualization():
     family_index = family_vals.index(df_top["family"].iloc[0])
     item_id_index = item_id_vals.index(df_top["item_id"].iloc[0])
 
-    with st.beta_expander("Visualization", expanded=True):
+    with st.beta_expander("👁️  Visualization", expanded=True):
         with st.form("viz_form"):
             st.markdown("#### Filter By")
             _cols = st.beta_columns(3)
@@ -1496,7 +1573,6 @@ if __name__ == "__main__":
     panel_launch()
     panel_accuracy()
     panel_top_performers()
-    panel_popular_items()
     panel_visualization()
 
     st.header("ML Forecasting")
