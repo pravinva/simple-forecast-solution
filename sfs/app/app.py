@@ -526,6 +526,8 @@ def panel_launch():
     if df is None or df_health is None:
         return
 
+    st.header("Statistical Forecasting")
+
     with st.beta_expander("🚀 Launch", expanded=True):
         st.write("")
         with st.form("sfs_form"):
@@ -545,6 +547,8 @@ def panel_launch():
                 btn_launch = st.form_submit_button("Launch")
 
         if btn_launch:
+            start = time.time()
+
             # save form data
             state.report["sfs"]["freq"] = freq
             state.report["sfs"]["horiz"] = horiz
@@ -560,8 +564,6 @@ def panel_launch():
 #               emoji = ":computer:"
 #           else:
 #               raise NotImplementedError
-
-            start = time.time()
 
             with st.spinner(f":rocket: Launching forecasts ..."):
                 if backend == "local":
@@ -588,11 +590,15 @@ def panel_launch():
             state.report["sfs"]["df_results"] = df_results
             state.report["sfs"]["df_preds"] = df_preds
             state.report["sfs"]["df_demand_cln"] = df_demand_cln
+            state.report["sfs"]["job_duration"] = time.time() - start
 
             #import cloudpickle
             #cloudpickle.dump(df_results, open("/tmp/df_results.pkl", "wb"))
 
-            st.text(f"(completed in {format_timespan(time.time() - start)})")
+        job_duration = state.report["sfs"].get("job_duration", None)
+
+        if job_duration:
+            st.text(f"(completed in {format_timespan(job_duration)})")
 
     return
 
@@ -947,6 +953,8 @@ def panel_ml_launch():
 
     if df is None:
         return
+
+    st.header("ML Forecasting")
 
     with st.beta_expander("Launch"):
         with st.form("ml_form"):
@@ -1621,14 +1629,10 @@ if __name__ == "__main__":
     panel_load_data()
     panel_data_health()
 
-    st.header("Statistical Forecasting")
-
     panel_launch()
     panel_accuracy()
     panel_top_performers()
     panel_visualization()
-
-    st.header("ML Forecasting")
 
     panel_ml_launch()
     panel_ml_forecast_summary()
