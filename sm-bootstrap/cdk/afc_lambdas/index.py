@@ -3,17 +3,37 @@ import datetime
 import json
 import boto3
 
+from urllib.parse import urlparse
+
 session = boto3.Session()
 afc = session.client("forecast")
 afcq = session.client("forecastquery")
+s3 = boto3.resource("s3")
+
+
+def update_status_json(resp, state, path):
+    """
+    """
+
+    parsed_url = urlparse(path, allow_fragments=False)
+    bucket = parsed_url.netloc
+    key = os.path.join(parsed_url.path.lstrip("/").rstrip("/"))
+
+    status_dict = dict(resp)
+    status_dict["PROGRESS"] = {
+        "state": state,
+        "timestamp": datetime.datetime.now().astimezone().isoformat()
+    }
+
+    s3obj = s3.Object(bucket, key)
+    s3obj.put(Body=bytes(json.dumps(status_dict).encode("utf-8")))
+
+    return
 
 
 def prepare_handler(event, context):
     """
     """
-
-    print(type(event))
-    print(event)
 
     prefix = event["input"]["prefix"]
     data_frq = event["input"]["data_freq"]
@@ -21,6 +41,9 @@ def prepare_handler(event, context):
     freq = event["input"]["freq"]
     s3_path = event["input"]["s3_path"]
     s3_export_path = event["input"]["s3_export_path"]
+
+    update_status_json(event["input"], "IN_PROGRESS:create_dataset_import",
+        f'{s3_export_path}/{prefix}_status.json')
 
     assert(freq in ("D", "W", "M"))
 
@@ -81,11 +104,17 @@ def prepare_handler(event, context):
 
     AFC_DATASET_IMPORT_JOB_ARN = dataset_import_resp["DatasetImportJobArn"]
 
-    resp_out = event["input"]
-    resp_out["AFC_DATASET_GROUP_ARN"] = AFC_DATASET_GROUP_ARN
-    resp_out["AFC_DATASET_ARN"] = AFC_DATASET_ARN
-    resp_out["AFC_DATASET_IMPORT_JOB_ARN"] = AFC_DATASET_IMPORT_JOB_ARN
+    status_json_s3_path = f'{s3_export_path}/{prefix}_status.json'
 
+    resp_out = event["input"]
+    resp_out["DatasetGroupArn"] = AFC_DATASET_GROUP_ARN
+    resp_out["DatasetArn"] = AFC_DATASET_ARN
+    resp_out["DatasetImportJobArn"] = dataset_import_resp["DatasetImportJobArn"]
+    resp_out["StatusJsonS3Path"] = status_json_s3_path
+
+    update_status_json(resp_out, "DONE:create_dataset_import",
+        status_json_s3_path)
+        
     return resp_out
 
 
@@ -93,10 +122,16 @@ def create_predictor_handler(event, context):
     """
     """
 
+    payload = event["input"]["Payload"]
+    prefix = payload["prefix"]
+
+    update_status_json(payload, "IN_PROGRESS:create_predictor",
+        payload["StatusJsonS3Path"])
+
     PREFIX = event["input"]["Payload"]["prefix"]
-    AFC_DATASET_GROUP_ARN = event["input"]["Payload"]["AFC_DATASET_GROUP_ARN"]
-    AFC_FORECAST_HORIZON = event["input"]["Payload"]["horiz"]
-    AFC_FORECAST_FREQUENCY = event["input"]["Payload"]["freq"]
+    AFC_DATASET_GROUP_ARN = payload["DatasetGroupArn"]
+    AFC_FORECAST_HORIZON = payload["horiz"]
+    AFC_FORECAST_FREQUENCY = payload["freq"]
     AFC_ALGORITHM_NAME = "NPTS"
     AFC_ALGORITHM_ARN = "arn:aws:forecast:::algorithm/NPTS"
     AFC_PREDICTOR_NAME = f"{PREFIX}_{AFC_ALGORITHM_NAME}"
@@ -131,9 +166,12 @@ def create_predictor_handler(event, context):
         }
     )
 
-    resp = event["input"]["Payload"]
-    resp["AFC_PREDICTOR_ARN"] = create_predictor_resp["PredictorArn"]
-    resp["AFC_PREDICTOR_NAME"] = AFC_PREDICTOR_NAME
+    resp = payload
+    resp["PredictorArn"] = create_predictor_resp["PredictorArn"]
+    resp["PredictorName"] = AFC_PREDICTOR_NAME
+
+    update_status_json(resp, "DONE:create_predictor",
+        payload["StatusJsonS3Path"])
 
     return resp
 
@@ -142,16 +180,25 @@ def create_forecast_handler(event, context):
     """
     """
 
-    AFC_FORECAST_NAME = event["input"]["Payload"]["AFC_PREDICTOR_NAME"]
+    payload = event["input"]["Payload"]
+    prefix = payload["prefix"]
+
+    AFC_FORECAST_NAME = payload["PredictorName"]
+
+    update_status_json(payload, "IN_PROGRESS:create_forecast",
+        payload["StatusJsonS3Path"])
 
     create_forecast_resp = afc.create_forecast(
-        ForecastName=event["input"]["Payload"]["AFC_PREDICTOR_NAME"],
-        PredictorArn=event["input"]["Payload"]["AFC_PREDICTOR_ARN"]
+        ForecastName=AFC_FORECAST_NAME,
+        PredictorArn=payload["PredictorArn"]
     )
 
-    resp = event["input"]["Payload"]
-    resp["AFC_FORECAST_ARN"] = create_forecast_resp["ForecastArn"]
-    resp["AFC_FORECAST_NAME"] = AFC_FORECAST_NAME
+    resp = payload
+    resp["ForecastArn"] = create_forecast_resp["ForecastArn"]
+    resp["ForecastName"] = AFC_FORECAST_NAME
+
+    update_status_json(resp, "DONE:create_forecast",
+        payload["StatusJsonS3Path"])
 
     return resp
 
@@ -163,14 +210,17 @@ def create_forecast_export_handler(event, context):
     payload = event["input"]["Payload"]
     prefix = payload["prefix"]
 
+    update_status_json(payload, "IN_PROGRESS:create_forecast_export",
+        payload["StatusJsonS3Path"])
+
     AFC_FORECAST_EXPORT_JOB_NAME = f"{prefix}_ExportJob"
 
     resp = afc.create_forecast_export_job(
         ForecastExportJobName=AFC_FORECAST_EXPORT_JOB_NAME,
-        ForecastArn=payload["AFC_FORECAST_ARN"],
+        ForecastArn=payload["ForecastArn"],
         Destination={
             "S3Config": {
-                "Path": payload["s3_export_path"],
+                "Path": os.path.join(payload["s3_export_path"], prefix),
                 "RoleArn": os.environ["AFC_ROLE_ARN"],
             }
         }
@@ -179,4 +229,93 @@ def create_forecast_export_handler(event, context):
     resp_out = payload
     resp_out["ForecastExportJobArn"] = resp["ForecastExportJobArn"]
 
+    update_status_json(resp_out, "DONE:create_forecast_export",
+        payload["StatusJsonS3Path"])
+
     return resp_out
+
+
+def create_predictor_backtest_export_handler(event, context):
+    """
+    """
+
+    payload = event["input"]["Payload"]
+    prefix = payload["prefix"]
+
+    update_status_json(payload, "IN_PROGRESS:create_predictor_backtest_export",
+        payload["StatusJsonS3Path"])
+
+    backtest_export_job_name = f"{prefix}_BacktestExportJob"
+
+    resp = afc.create_predictor_backtest_export_job(
+        PredictorBacktestExportJobName=backtest_export_job_name,
+        PredictorArn=payload["PredictorArn"],
+        Destination={
+            "S3Config": {
+                "Path": os.path.join(payload["s3_export_path"], prefix),
+                "RoleArn": os.environ["AFC_ROLE_ARN"],
+            }
+        }
+    )
+
+    resp_out = payload
+    resp_out["PredictorBacktestExportJobArn"] = resp["PredictorBacktestExportJobArn"]
+
+    update_status_json(resp_out, "IN_PROGRESS:create_predictor_backtest_export",
+        payload["StatusJsonS3Path"])
+
+    return resp_out
+
+
+def delete_afc_resources_handler(event, context):
+    """
+    """
+
+    payload = event["input"]["Payload"]
+    prefix = payload["prefix"]
+
+    update_status_json(payload, "IN_PROGRESS:delete_afc_resources",
+        payload["StatusJsonS3Path"])
+
+    try:
+        # Delete forecast export job
+        afc.delete_forecast_export_job(
+            ForecastExportJobArn=payload["ForecastExportJobArn"])
+    except:
+        pass
+
+    try:
+        # Delete forecast
+        afc.delete_forecast(ForecastArn=payload["ForecastArn"])
+    except:
+        pass
+
+    try:
+        # Delete predictor
+        afc.delete_predictor(PredictorArn=payload["PredictorArn"])
+    except:
+        pass
+
+    try:
+        # Delete dataset
+        afc.delete_dataset(DatasetArn=payload["DatasetArn"])
+    except:
+        pass
+
+    try:
+        # Delete dataset import job
+        afc.delete_dataset_import_job(
+            DatasetImportJobArn=payload["DatasetImportJobArn"])
+    except:
+        pass
+
+    try:
+        # Delete dataset group
+        afc.delete_dataset_group(DatasetGroupArn=payload["DatasetGroupArn"])
+    except:
+        pass
+
+    update_status_json(payload, "DONE:delete_afc_resources",
+        payload["StatusJsonS3Path"])
+
+    return

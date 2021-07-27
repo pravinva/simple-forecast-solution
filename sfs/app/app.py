@@ -43,10 +43,10 @@ import plotly.graph_objects as go
 
 from collections import OrderedDict, deque, namedtuple
 from concurrent import futures
+from urllib.parse import urlparse
 from sspipe import p, px
 from streamlit import session_state as state
 from stqdm import stqdm
-#from SessionState import get_state
 from tabulate import tabulate
 from sfs import (load_data, resample, run_pipeline, run_cv_select,
     make_demand_classification, process_forecasts, make_perf_summary,
@@ -183,6 +183,7 @@ def display_ag_grid(df):
     AgGrid(df, gridOptions=gb.build())
 
     return
+
 
 def valid_launch_freqs():
     data_freq = state.report["data"]["freq"]
@@ -616,6 +617,8 @@ def panel_launch():
                     wait_for = \
                         run_pipeline(df, freq_in, freq_out, obj_metric="smape_mean",
                             cv_stride=2, backend="futures", horiz=horiz)
+            elif backend == "lambdamap":
+                wait_for = run_lambdamap(df, horiz, freq_out)
             else:
                 raise NotImplementedError
 
@@ -784,8 +787,7 @@ def panel_top_performers():
             dt_stop = st.date_input("Stop", value=dt_max, min_value=dt_min, max_value=dt_max)
 
         cperc_thresh = st.slider("Percentage of total demand",
-            step=5, value=80, format="%d%%",
-            help="Select the percentage of total demand")
+            step=5, value=80, format="%d%%")
 
         dt_start = dt_start.strftime("%Y-%m-%d")
         dt_stop = dt_stop.strftime("%Y-%m-%d")
@@ -797,19 +799,20 @@ def panel_top_performers():
         total_demand = df_grp_summary["demand"].values[0]
         perc_demand = df_grp_summary["% total demand"].values[0]
 
-        _cols = st.beta_columns([1,2])
+#       _cols = st.beta_columns([1,2])
 
-        with _cols[0]:
-            st.markdown("#### Summary")
-            st.text(textwrap.dedent(f"""
-            Avg. Accuracy:\t{int(mean_acc):d} %  
-            Demand:\t\t{total_demand:.0f} 
-            % Total Demand:\t{perc_demand:.0f} %
-            """))
+#       with _cols[0]:
+#           st.markdown("#### Summary")
+#           st.text(textwrap.dedent(f"""
+#           Avg. Accuracy:\t{int(mean_acc):d} %  
+#           Demand:\t\t{total_demand:.0f} 
+#           % Total Demand:\t{perc_demand:.0f} %
+#           """))
 
-        with _cols[1]:
-            st.markdown("#### Results")
-            st.write("TODO: AgGrid here")
+#       with _cols[1]:
+#           st.markdown("#### Results")
+#           display_ag_grid(df_grp)
+        display_ag_grid(df_grp)
 
         if False:
             with _cols[1]:
@@ -932,6 +935,21 @@ def panel_visualization():
 #
 # ML Forecasting Panels
 #
+def parse_status_json(path):
+    """
+    """
+
+    parsed_url = urlparse(path, allow_fragments=False)
+    bucket = parsed_url.netloc
+    key = parsed_url.path.strip("/")
+
+    s3 = boto3.resource("s3")
+    s3_obj = s3.Object(bucket_name=bucket, key=key)
+
+    status_dict = json.loads(s3_obj.get()["Body"].read())
+
+    return status_dict
+
 
 def panel_ml_launch():
     """
@@ -962,52 +980,39 @@ def panel_ml_launch():
 
         # Launch Amazon Forecast job
         if ml_form_button:
-            state.report["afc"]["horiz"] = horiz
-            state.report["afc"]["freq"] = freq
-            state.report["afc"]["execution_arn"] = run_ml_state_machine()
+            with st.spinner("Launching ML forecasting job ..."):
+                state.report["afc"]["horiz"] = horiz
+                state.report["afc"]["freq"] = freq
 
-        ml_refresh_button = st.button("Refresh Job Status")
+                execution_arn, status_json_s3_path = run_ml_state_machine()
 
-        if state.report["afc"].get("execution_arn", None) or ml_refresh_button:
-            ml_job_status = refresh_ml_state_machine_status()
-            st.markdown(f"Job Status: **{ml_job_status}**")
+                state.report["afc"]["execution_arn"] = execution_arn
+                state.report["afc"]["status_json_s3_path"] = status_json_s3_path
 
-    return
-    if state.is_valid_file and state.df is not None:
-        with st.beta_expander("8 - Amazon Forecast (optional)"):
-            st.markdown("")
-            with st.form("afc_form"):
-                _cols = st.beta_columns(3)
+        ml_refresh_job_button = st.button("Refresh Job Status")
+        execution_arn = state.report["afc"].get("execution_arn", None)
 
-                with _cols[0]:
-                    state.horiz_afc = \
-                        st.number_input("Horizon Length",
-                                        key="afc_horiz_input",
-                                        value=1, min_value=1)
+        if ml_refresh_job_button:
+            with st.spinner("Checking job status ..."):
+                sfn_status, status_dict = refresh_ml_state_machine_status()
+                sfn_state = status_dict["PROGRESS"]["state"]
 
-                with _cols[1]:
-                    state.freq_out_afc = \
-                        st.selectbox("Forecast Frequency",
-                            list(FREQ_MAP_AFC.keys()),
-                            list(FREQ_MAP_AFC.keys()).index(state.freq_out_afc) if state.freq_out_afc else 0,
-                            key="afc_freq_input")
+                if sfn_status not in ("RUNNING", "SUCCEEDED", "FAILED",
+                                      "TIMED_OUT", "ABORTED",):
+                    sfn_status_str = "UNKNOWN"
 
-                with _cols[2]:
-                    st.selectbox("Algorithm", ["AutoML"], 0, key="afc_algo_input")
+                st.info(textwrap.dedent(f"""
+                **Status:** {sfn_status}  
+                **Stage:** {sfn_state}  
+                **AWS Console:** [view](https://console.aws.amazon.com/states/home#/executions/details/{execution_arn})
+                """))
 
-                #st.text_input("State Machine ARN", args.ml_state_machine_arn)
+                ml_stop_button = st.button("Stop Job")
 
-                ml_form_button = st.form_submit_button("Launch")
-
-            # Launch Amazon Forecast job
-            if afc_form_button:
-                state.execution_arn = run_ml_state_machine(state)
-
-            afc_refresh_button = st.button("Refresh Job Status")
-
-            if state.execution_arn or afc_refresh_button:
-                afc_job_status = refresh_afc_state_machine_status(state)
-                st.markdown(f"Job Status: **{afc_job_status}**")
+            if ml_stop_button:
+                sfn_client = boto3.client("stepfunctions")
+                resp = sfn_client.stop_execution(executionArn=execution_arn)
+                st.write(resp)
 
     return
 
@@ -1021,8 +1026,8 @@ def panel_ml_forecast_summary():
     if df is None:
         return
 
-    with st.beta_expander("Forecast Summary"):
-        pass
+    with st.beta_expander("Forecast Summary", expanded=True):
+        ml_refresh_summary_button = st.button("Refresh")
 
     return
 
@@ -1346,43 +1351,6 @@ def page_view_report(state):
     return
 
 
-#def process_forecasts(wait_for):
-#    """
-#    """
-#
-#    # aggregate the forecasts
-#    raw_results = [f.result() for f in futures.as_completed(wait_for)]
-#
-#    pred_lst = []
-#    results_lst = []
-#
-#    for df_pred, df_results in raw_results:
-#        pred_lst.append(df_pred)
-#        results_lst.append(df_results)
-#
-#    # results dataframe
-#    df_results = pd.concat(results_lst) \
-#                   .reset_index(drop=True)
-#
-#    assert(df_results is not None)
-#
-#    # predictions dataframe
-#    df_preds = pd.concat(pred_lst)
-#    df_preds.index.name = "timestamp"
-#    df_preds.reset_index(inplace=True)
-#
-#    # analysis dataframes
-#    df_demand_cln = \
-#        make_demand_classification(state.report["data"]["df"],
-#                                   state.report["sfs"]["freq"])
-#
-#    df_perf = make_perf_summary(df_results)
-#
-#    state.report["sfs"]["df_results"] = df_results
-#    state.report["sfs"]["df_preds"] = df_preds
-#
-#    return
-
 def run_ml_state_machine():
     """Execute the Amazon Forecast state machine.
 
@@ -1448,15 +1416,21 @@ def run_ml_state_machine():
             })
         )
 
-    return resp["executionArn"]
+    status_json_s3_path = \
+        os.path.join(s3_output_path, f'{prefix}_status.json')
+
+    return resp["executionArn"], status_json_s3_path
 
 
 def refresh_ml_state_machine_status():
     """
     """
-    client = boto3.client("stepfunctions")
-    resp = client.describe_execution(executionArn=state.report["afc"]["execution_arn"])
-    return resp["status"]
+    sfn_client = boto3.client("stepfunctions")
+    resp = sfn_client.describe_execution(
+        executionArn=state.report["afc"]["execution_arn"])
+    sfn_status = resp["status"]
+    status_dict = parse_status_json(state.report["afc"]["status_json_s3_path"])
+    return sfn_status, status_dict
 
 
 def file_selectbox(label, folder):
@@ -1511,12 +1485,6 @@ if __name__ == "__main__":
     st.subheader("Amazon Simple Forecast Solution")
     st.title("Create Forecasts")
     st.markdown("")
-
-#   with st.beta_expander("0 – Prepare Data"):
-#       panel_prepare_data(state)
-
-    #st.write(state.report)
-
     with st.beta_expander("💾 Load/Save Report"):
         pass
 
@@ -1536,185 +1504,19 @@ if __name__ == "__main__":
     panel_ml_launch()
     panel_ml_forecast_summary()
 
-#   if state.report["data"]:
-#       btn_validate_data = panel_validate_data(state)
-#   else:
-#       pass
+    with st.beta_expander("Downloads", expanded=True):
+        ml_downloads_button = \
+            st.button("Generate Downloads", key="ml_gen_downloads")
 
- #  with st.beta_expander("1 – Load & Validate Data", expanded=True):
- #      if state.uploaded_file is None:
- #          host_type = "Amazon SageMaker Notebook Instance"
- #          _cols = st.beta_columns([2,1])
+        if ml_downloads_button:
+            with st.spinner("Generating downloads ..."):
+                time.sleep(0.5)
 
- #          if host_type == "Amazon SageMaker Notebook Instance":
- #              with _cols[0]:
- #                  # List uploaded files in local directory
- #                  uploaded_file = file_selectbox(args.local_file_dir)
- #                  st.button("Refresh Files")
- #          elif host_type == "Self-Hosted":
- #              uploaded_file = st.file_uploader("File")
- #          else:
- #              raise NotImplementedError
+                # generate presigned download url
 
- #          state.host_type = host_type
+                st.info(textwrap.dedent(f"""
+                - [Forecast]()
+                - [Results]()
 
- #          with _cols[1]:
- #              state.freq_in = st.selectbox("Frequency", list(FREQ_MAP.keys()))
- #              validate_button = st.button("Validate")
-
- #          if validate_button:
- #              state.uploaded_file = uploaded_file
-
- #              if state.uploaded_file:
- #                  with st.spinner("Validating file..."):
- #                      state.df_upload = load_uploaded_file(state.uploaded_file)
- #                      state.vldn_msgs, state.is_valid_file = validate(state.df_upload)
- #              else:
- #                  st.error("Please select a file")
-
- #          if state.is_valid_file and state.uploaded_file:
- #              # parse data into sfs format and impute missing dates according
- #              # to the input frequency
- #              state.df = load_data(state.df_upload, impute_freq=FREQ_MAP[state.freq_in])
- #              state.uploaded_file_name = state.uploaded_file.name
-
- #              if isinstance(state.uploaded_file, UploadedFile):
- #                  state.uploaded_file_size = state.uploaded_file.size
- #              else:
- #                  state.uploaded_file_size = os.fstat(state.uploaded_file.fileno()).st_size
-
- #              st.info(f"Validation succeeded")
- #          elif state.is_valid_file is None:
- #              pass
- #          else:
- #              err_bullets = \
- #                  "\n\n".join("- " + s for s in state.vldn_msgs["errors"])
- #              st.error(f"Validation failed\n\n{err_bullets}")
- #      else:
- #          st.text(f"File:\t\t{state.uploaded_file_name}\n"
- #                  f"Size:\t\t~{state.uploaded_file_size/1e6:.1f} MB\n"
- #                  f"Frequency:\t{state.freq_in}")
-
- #  if state.df is not None and state.df_health is None:
- #      with st.spinner("Running data health check..."):
- #          state.df_health = \
- #              make_health_summary(state.df, FREQ_MAP[state.freq_in])
-
- #  #
- #  # Display validation health check status
- #  #
- #  if state.df_health is None:
- #      pass
- #  else:
- #      with st.beta_expander("2 – Data Health Check", expanded=True):
- #          panel_health_check(state)
-
- #  if state.is_valid_file and state.df is not None:
- #      with st.beta_expander("3 – Configure & Launch Forecast", expanded=True):
- #          with st.form("sfs_form"):
- #              with st.beta_container():
- #                  _cols = st.beta_columns(3)
-
- #                  with _cols[0]:
- #                      state.horiz = st.number_input("Horizon Length", value=1, min_value=1)
-
- #                  with _cols[1]:
- #                      state.freq_out = \
- #                          st.selectbox("Forecast Frequency",
- #                              list(FREQ_MAP.keys()),
- #                              list(FREQ_MAP.keys()).index(state.freq_out) if state.freq_out else 0)
-
- #                  with _cols[2]:
- #                      state.backend = \
- #                          st.selectbox("Compute Backend", ["AWS Lambda", "Local"], 0)
-
- #                  launch_button = st.form_submit_button("Launch")
- #  #
- #  # Launch a forecast job
- #  #
- #  if state.is_valid_file and isinstance(state.df, pd.DataFrame) and \
- #      launch_button and state.backend:
- #      if state.backend == 'Local':
- #          wait_for = \
- #              run_pipeline(state.df, FREQ_MAP[state.freq_in],
- #                  FREQ_MAP[state.freq_out], obj_metric="smape_mean",
- #                  cv_stride=2, backend="futures", horiz=state.horiz)
- #      elif state.backend == 'AWS Lambda':
- #          # Resample data
- #          with st.spinner(f"Resampling to {state.freq_out} frequency"):
- #              state.df2 = resample(state.df, FREQ_MAP[state.freq_out])
-
- #          wait_for = \
- #              run_lambdamap(state.df2, state.horiz, FREQ_MAP[state.freq_out])
- #      else:
- #          raise NotImplementedError
-
- #      display_progress(wait_for, "Generating forecast")
-
- #      with st.spinner("Processing Results"):
- #          make_dataframes(state, wait_for)
-
- #  #
- #  # Display Visualization Panel
- #  #
- #  if state.df_pred is None and state.df_results is None:
- #      pass
- #  else:
- #      with st.beta_expander("4 – Forecast Summary", expanded=True):
- #          panel_forecast_summary(state)
-
- #      with st.beta_expander("5 - Top Performers", expanded=True):
- #          st.markdown("### Top Performers")
- #          st.info("""Calculate the forecast accuracy by **item_id**,
- #          **family**, or **channel** according to their percentage of total demand
- #          over a given time period.""")
- #          make_df_top(state)
-
- #          with st.form("top_perf_form"):
- #              _cols = st.beta_columns(3)
-
- #              with _cols[0]:
- #                  st.selectbox("Group By", ["item_id", "channel", "family"])
-
- #              with _cols[1]:
- #                  st.date_input("Start")
-
- #              with _cols[2]:
- #                  st.date_input("End")
-
- #              _slider_value = \
- #                  st.slider("Percentage of total demand", step=5, value=80, format="%d%%", help="Select the percentage of total demand")
-
- #              if st.form_submit_button("Apply"):
- #                  slider_value = _slider_value
- #              else:
- #                  slider_value = 80
-
- #          df_top_subset = state.df_top.query(f"cperc <= {slider_value:f}") \
- #                  | px.loc[:,["channel", "family", "item_id", "demand", "% of total demand", "accuracy"]]
-
-##          with _cols[1]:
-##              acc = df_top_subset["accuracy"].mean()
-##              st.markdown("#### Avg. Accuracy")
-
-##              if pd.isnull(acc):
-##                  pass
-##              else:
-##                  st.markdown(
-##                      f"<span style='font-size:36pt;font-weight:bold'>{acc:.0f}%</span><br/>",
-##                      unsafe_allow_html=True)
-
- #          st.dataframe(df_top_subset.head(10))
- #          
- #          if df_top_subset.shape[0] > 10:
- #              st.markdown("_Truncated – Top 10 Only_")
-
- #      with st.beta_expander("6 – Visualize Forecast", expanded=True):
- #          panel_visualization(state)
-
-##      with st.beta_expander("7 – Downloads", expanded=True):
-##          panel_downloads(state)
-
-
- #  state.sync()
- #  """
+                ####
+                """))

@@ -44,7 +44,7 @@ def lambda_handler(event, context):
     afc_client = boto3.client("forecast")
     resp = afc_client.describe_forecast_export_job(
         ForecastExportJobArn=payload["ForecastExportJobArn"])
-    s3_path = resp["Destination"]["S3Config"]["Path"]
+    console_url = payload["AwsS3ConsoleUrl"]
 
     client = boto3.client("sns")
 
@@ -56,9 +56,8 @@ def lambda_handler(event, context):
 
         Your Amazon Forecast job has completed.
 
-        The raw forecast files can be downloaded from the S3 path below:
-        ‣ {s3_path}
-
+        The forecast files can be downloaded from the S3 path below:
+        ‣ {console_url}
 
         Sincerely,
         The Amazon SFS Team
@@ -97,7 +96,6 @@ class AfcStack(cdk.Stack):
         #
         # PREPARE DATA
         #
-
         prepare_lambda = \
             lambda_.Function(
                 self,
@@ -220,9 +218,42 @@ class AfcStack(cdk.Stack):
                     "ResourcePendingException"])
 
         #
+        # BACKTEST EXPORT FILE(s)
+        #
+        create_predictor_backtest_export_lambda = \
+            lambda_.Function(
+                self,
+                "CreatePredictorBacktestExportLambda",
+                runtime=lambda_.Runtime.PYTHON_3_8,
+                handler="index.create_predictor_backtest_export_handler",
+                code=lambda_.Code.from_asset(os.path.join(PWD, "afc_lambdas")),
+                environment={
+                    "AFC_ROLE_ARN": afc_role.role_arn
+                },
+                role=afc_role,
+                timeout=core.Duration.seconds(900))
+
+        create_predictor_backtest_export_step = \
+            tasks.LambdaInvoke(
+                self,
+                "CreatePredictorBacktestExportStep",
+                lambda_function=create_predictor_backtest_export_lambda,
+                payload=sfn.TaskInput.from_object({
+                    "input": sfn.JsonPath.string_at("$")
+                })
+            )
+
+        create_predictor_backtest_export_step.add_retry(
+            backoff_rate=1.1,
+            interval=core.Duration.seconds(60),
+            max_attempts=2000,
+            errors=["ResourceInUseException",
+                    "ResourcePendingException"])
+
+        #
         # POSTPROCESS FORECAST EXPORT FILE(s)
         #
-        postprocess_lambda_function = \
+        postprocess_lambda = \
             lambda_.Function(self, 
                 id=f"{construct_id}-PostProcessLambda",
                 code=lambda_.EcrImageCode.from_asset_image(
@@ -231,7 +262,56 @@ class AfcStack(cdk.Stack):
                 runtime=lambda_.Runtime.FROM_IMAGE,
                 function_name=f"{construct_id}-PostProcessLambda",
                 memory_size=10240,
+                role=afc_role,
                 timeout=core.Duration.seconds(900))
+            
+        postprocess_step = \
+            tasks.LambdaInvoke(
+                self,
+                "PostProcessStep",
+                lambda_function=postprocess_lambda,
+                payload=sfn.TaskInput.from_object({
+                    "input": sfn.JsonPath.string_at("$")
+                })
+            )
+
+        postprocess_step.add_retry(
+            backoff_rate=1.1,
+            interval=core.Duration.seconds(30),
+            max_attempts=2000,
+            errors=["NoFilesFound",
+                    "ResourceInUseException",
+                    "ResourcePendingException"])
+
+        # DELETE AFC RESOURCES
+        delete_afc_resources_lambda = \
+            lambda_.Function(
+                self,
+                "DeleteAfcResourcesLambda",
+                runtime=lambda_.Runtime.PYTHON_3_8,
+                handler="index.delete_afc_resources_handler",
+                code=lambda_.Code.from_asset(os.path.join(PWD, "afc_lambdas")),
+                role=afc_role,
+                timeout=core.Duration.seconds(900))
+
+        delete_afc_resources_step = \
+            tasks.LambdaInvoke(
+                self,
+                "DeleteAfcResourcesStep",
+                lambda_function=delete_afc_resources_lambda,
+                payload=sfn.TaskInput.from_object({
+                    "input": sfn.JsonPath.string_at("$")
+                })
+            )
+
+        delete_afc_resources_step.add_retry(
+            backoff_rate=1.1,
+            interval=core.Duration.seconds(60),
+            max_attempts=2000,
+            errors=["ResourceNotFoundException",
+                    "ResourceInUseException",
+                    "ResourcePendingException"])
+
         #
         # SNS EMAIL
         #
@@ -258,7 +338,10 @@ class AfcStack(cdk.Stack):
         #
         definition = prepare_step.next(create_predictor_step) \
                                  .next(create_forecast_step) \
+                                 .next(create_predictor_backtest_export_step) \
                                  .next(create_forecast_export_step) \
+                                 .next(postprocess_step) \
+                                 .next(delete_afc_resources_step) \
                                  .next(sns_email_step)
 
         state_machine = sfn.StateMachine(self,

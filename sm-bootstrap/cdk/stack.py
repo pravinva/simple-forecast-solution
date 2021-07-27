@@ -173,7 +173,7 @@ class SfsStack(cdk.Stack):
 
         ssm_s3_output_path_param = ssm.StringParameter(self,
                 "SfsSsmS3OutputPath",
-                string_value=f"s3://{bucket.bucket_name}/output/",
+                string_value=f"s3://{bucket.bucket_name}/afc-exports/",
                 parameter_name="SfsS3OutputPath")
 
         #
