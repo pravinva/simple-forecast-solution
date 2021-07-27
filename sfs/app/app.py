@@ -849,6 +849,8 @@ def panel_visualization():
     if df is None or df_results is None or df_preds is None:
         return
 
+    start = time.time()
+
     df_top = df.groupby(["channel", "family", "item_id"], as_index=False) \
                .agg({"demand": sum}) \
                .sort_values(by="demand", ascending=False)
@@ -923,6 +925,9 @@ def panel_visualization():
                 legend={"orientation": "h", "yanchor": "bottom", "y": 1.0, "xanchor":"left", "x": 0.0}
             )
             st.plotly_chart(fig, use_container_width=True)
+
+        plot_duration = time.time() - start
+        st.text(f"(completed in {format_timespan(plot_duration)})")
 
     return
 
@@ -1127,10 +1132,8 @@ def panel_ml_visualization():
             make_mask(df_ml_preds, channel_choice, family_choice, item_id_choice)
 
         df_plot = df_ml_preds[pred_mask]
-        print(df_plot)
 
         if len(df_plot) > 0:
-
             # display the line chart
             #fig = pex.line(df_plot, x="timestamp", y="demand", color="type")
 
@@ -1165,6 +1168,7 @@ def panel_ml_visualization():
                 legend={"orientation": "h", "yanchor": "bottom", "y": 1.0, "xanchor":"left", "x": 0.0}
             )
             st.plotly_chart(fig, use_container_width=True)
+
 
     return
 
@@ -1623,6 +1627,7 @@ if __name__ == "__main__":
     st.subheader("Amazon Simple Forecast Solution")
     st.title("Create Forecasts")
     st.markdown("")
+
     with st.beta_expander("💾 Load/Save Report"):
         pass
 
@@ -1638,7 +1643,7 @@ if __name__ == "__main__":
     panel_ml_forecast_summary()
     panel_ml_visualization()
 
-    with st.beta_expander("Downloads", expanded=True):
+    with st.beta_expander("Downloads", expanded=False):
         ml_downloads_button = \
             st.button("Generate Downloads", key="ml_gen_downloads")
 
