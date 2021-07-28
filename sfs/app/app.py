@@ -1502,10 +1502,12 @@ if __name__ == "__main__":
     - [github](https://github.com/aws-samples/simple-forecast-solution)
     """))
 
-    menu_radio_btn = \
-        st.sidebar.radio("Menu", ["Create Report", "Load Report"])
+    create_report_btn = st.sidebar.button("📄 Create Report")
+    load_report_btn = st.sidebar.button("⬆️ Load Report")
+    save_report_btn = st.sidebar.button("💾 Save Report")
+    clear_report_btn = st.sidebar.button("❌ Clear Report")
 
-    if st.sidebar.button("Save Report"):
+    if save_report_btn:
         save_report()
 
     #
@@ -1513,16 +1515,19 @@ if __name__ == "__main__":
     #
     st.subheader("Amazon Simple Forecast Solution")
 
-    if menu_radio_btn == "Create Report":
+    if save_report_btn:
         st.title("Create Report")
         st.markdown("")
         panel_load_data()
-    elif menu_radio_btn == "Load Report":
+
+    if load_report_btn:
         st.title("Load Report")
         st.markdown("")
         panel_load_report()
-    else:
-        st.stop()
+
+    if clear_report_btn:
+        #st.sidebar("Are you sure?", ["Yes", "No"], index=1)
+        pass
 
     panel_data_health()
 
@@ -1539,4 +1544,3 @@ if __name__ == "__main__":
     panel_ml_launch()
     panel_ml_forecast_summary()
     panel_ml_visualization()
-
