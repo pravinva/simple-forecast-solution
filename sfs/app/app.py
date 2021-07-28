@@ -697,7 +697,7 @@ def panel_accuracy():
     return
 
 
-def make_df_top(df, df_results, col, dt_start, dt_stop, cperc_thresh):
+def make_df_top(df, df_results, groupby_cols, dt_start, dt_stop, cperc_thresh):
     """
     """
 
@@ -728,14 +728,14 @@ def make_df_top(df, df_results, col, dt_start, dt_stop, cperc_thresh):
     # calculate per-group demand %
     df_grp_demand = \
         df2 \
-        | px.groupby(col, as_index=False) \
+        | px.groupby(groupby_cols, as_index=False, sort=False) \
         | px.agg({"demand": sum}) \
         | px.assign(perc=px["demand"] / total_demand * 100)
 
     # get the best models for each group
     df_grp_metrics = \
         df_results.query("rank == 1") \
-        | px.groupby(col, as_index=False) \
+        | px.groupby(groupby_cols, as_index=False, sort=False) \
         | px.apply(lambda dd: calc_period_metrics(dd, dt_start, dt_stop)) \
         | p(pd.DataFrame) \
         | px.rename({None: "smape"}, axis=1) \
@@ -745,7 +745,7 @@ def make_df_top(df, df_results, col, dt_start, dt_stop, cperc_thresh):
 
     # combine, sort, and display
     df_grp = df_grp_demand \
-        | px.merge(df_grp_metrics, on=col, how="left") \
+        | px.merge(df_grp_metrics, on=groupby_cols, how="left") \
         | px.sort_values(by="demand", ascending=False) \
         | px.assign(cperc=px["perc"].cumsum()) \
         | px.query(f"cperc <= {cperc_thresh}") \
@@ -759,7 +759,7 @@ def make_df_top(df, df_results, col, dt_start, dt_stop, cperc_thresh):
 
     df_grp_summary["% total demand"] = np.round(100 * df_grp_summary["demand"] / total_demand, 1)
     df_grp_summary = pd.DataFrame(df_grp_summary).T[["demand", "% total demand", "% accuracy"]]
-    df_grp_summary.insert(0, "column", col)
+    df_grp_summary.insert(0, "group by", ", ".join(groupby_cols))
     df_grp_summary["% accuracy"] = df_grp_summary["% accuracy"].round(0)
 
     df_grp["demand"] = df_grp["demand"].round(0)
@@ -787,13 +787,19 @@ def panel_top_performers():
     with st.beta_expander("🏆 Top Performers", expanded=True):
         st.write("#### Filters")
 
-        _cols = st.beta_columns(3)
+        _cols = st.beta_columns([2,1,1])
 
         dt_min = df.index.min()
         dt_max = df.index.max()
 
         with _cols[0]:
-            col = st.selectbox("Group By", ["item_id", "family", "channel"])
+            groupby_cols = st.multiselect("Group By",
+                ["channel", "family", "item_id"], ["channel", "family", "item_id"])
+
+#           channel_checkbox = st.checkbox("channel", value=True)
+#           family_checkbox = st.checkbox("family", value=True)
+#           item_id_check = st.checkbox("item_id", value=True)
+
         with _cols[1]:
             dt_start = st.date_input("Start", value=dt_min, min_value=dt_min, max_value=dt_max)
         with _cols[2]:
@@ -808,7 +814,8 @@ def panel_top_performers():
         start = time.time()
 
         with st.spinner("Processing top performers ..."):
-            df_grp, df_grp_summary = make_df_top(df, df_results, col, dt_start, dt_stop, cperc_thresh)
+            df_grp, df_grp_summary = \
+                make_df_top(df, df_results, groupby_cols, dt_start, dt_stop, cperc_thresh)
 
 #       mean_acc = df_grp_summary["accuracy"].values[0]
 #       total_demand = df_grp_summary["demand"].values[0]
