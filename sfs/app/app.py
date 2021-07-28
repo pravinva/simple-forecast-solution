@@ -498,21 +498,27 @@ def panel_load_report():
     with st.beta_expander("⬆️ Load Report", expanded=True):
         report_source = st.radio("Source", ["local"], format_func=format_func)
 
-        if report_source == "local":
-            fn = file_selectbox("File", os.path.join(args.local_dir, "reports"),
-                                globs=("*.pkl.gz",)) 
-        elif report_source == "s3":
-            # list the reports in the s3 bucket
-#           df_reports = make_df_reports(bucket, prefix)
-#           grid_resp = \
-#               display_ag_grid(df_reports, paginate=True, comma_cols=[],
-#                               selection_mode="single", use_checkbox=True)
-#           st.write(grid_resp)
-            pass
-        else:
-            raise NotImplementedError
+        _cols = st.beta_columns([3,1])
 
-        load_report_btn = st.button("Load", key="load_report_btn")
+        with _cols[0]:
+            if report_source == "local":
+                fn = file_selectbox("File", os.path.join(args.local_dir, "reports"),
+                                    globs=("*.pkl.gz",)) 
+            elif report_source == "s3":
+                # list the reports in the s3 bucket
+    #           df_reports = make_df_reports(bucket, prefix)
+    #           grid_resp = \
+    #               display_ag_grid(df_reports, paginate=True, comma_cols=[],
+    #                               selection_mode="single", use_checkbox=True)
+    #           st.write(grid_resp)
+                pass
+            else:
+                raise NotImplementedError
+            load_report_btn = st.button("Load", key="load_report_btn")
+
+        with _cols[1]:
+            st.write("##")
+            st.button("🔄", key="refresh_report_files_btn")
 
         if load_report_btn:
             with st.spinner("Loading Report ..."):
@@ -530,6 +536,8 @@ def panel_data_health():
 
     if df is None:
         return
+
+    st.header("Data Health")
 
     with st.beta_expander("❤️ Data Health", expanded=True):
         with st.spinner("Performing data health check ..."):
@@ -1494,7 +1502,7 @@ if __name__ == "__main__":
     #
     # Sidebar
     #
-    st.sidebar.title("Amazon Simple Forecast Solution")
+    st.sidebar.title("Amazon Simple Forecast Accelerator")
     st.sidebar.markdown(textwrap.dedent("""
     - [github](https://github.com/aws-samples/simple-forecast-solution)
     """))
@@ -1511,8 +1519,6 @@ if __name__ == "__main__":
 
     if clear_report_btn:
         state.pop("report")
-
-
 
     if "report" not in state:
         state["report"] = {"data": {}, "sfs": {}, "afc": {}}
@@ -1539,7 +1545,7 @@ if __name__ == "__main__":
     #
     # Main page
     #
-    st.subheader("Amazon Simple Forecast Solution")
+    st.subheader("Amazon Simple Forecast Accelerator")
 
     if nav_radio_btn == "create_report":
         st.title("Create Report")
@@ -1551,10 +1557,6 @@ if __name__ == "__main__":
         panel_load_report()
 
     panel_data_health()
-
-#   if st.button("Reset Form"):
-#       state.pop("report")
-#       raise RerunException(None)
 
     panel_launch()
     panel_accuracy()
