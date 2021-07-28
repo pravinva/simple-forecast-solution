@@ -363,22 +363,6 @@ def make_downloads(df_pred, df_results):
     return pred_fn, results_fn
 
 
-def panel_downloads(state):
-    """
-    """
-
-    pred_fn, results_fn = make_downloads(state.df_pred, state.df_results)
-    pred_bn, results_bn = os.path.basename(pred_fn), os.path.basename(results_fn)
-
-    st.markdown(
-        f"Forecast: [{pred_bn}](downloads/{pred_bn})  \n"
-        f"Results: [{results_bn}](downloads/{results_bn})\n",
-        unsafe_allow_html=True
-    )
-
-    return
-
-
 def panel_load_data():
     """Display the 'Load Data' panel.
 
@@ -1036,6 +1020,36 @@ def panel_visualization():
     return
 
 
+def panel_downloads():
+    """
+    """
+
+    df = state.report["data"].get("df", None)
+    df_results = state.report["sfs"].get("df_results", None)
+    df_preds = state.report["sfs"].get("df_preds", None)
+
+    if df is None or df_results is None or df_preds is None:
+        return
+
+    with st.beta_expander("⬇️  Downloads"):
+        if st.button("Export", key="sfs_export_forecast_btn"):
+            with st.spinner("Exporting Forecasts ..."):
+                now_str = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+                basename = os.path.basename(state["report"]["data"]["path"])
+                s3_sfs_export_path = state["report"]["sfs"]["s3_sfs_export_path"]
+                s3_path = f'{s3_sfs_export_path}/{basename}_{now_str}_sfs-forecast.csv.gz'
+
+                wr.s3.to_csv(df_preds, s3_path, compression="gzip", index=False)
+
+                # generate presigned s3 url for user to download
+                signed_url = create_presigned_url(s3_path)
+
+                st.info(textwrap.dedent(f"""
+                Your forecast export is ready [here]({signed_url})."""))
+
+    return
+
+
 #
 # ML Forecasting Panels
 #
@@ -1277,326 +1291,6 @@ def panel_ml_visualization():
     return
 
 
-#
-# Pages
-#
-def page_create_forecast(state):
-    """
-    """
-
-    freq_options = ["Daily", "Weekly", "Monthly"]
-
-    with st.beta_container():
-        st.subheader("Step 2: Select forecast parameters")
-
-        # Display input file info.
-        if state.uploaded_file:
-            file_col1, file_col2, file_col3 = st.beta_columns([1,1,1])
-
-            with file_col1:
-                st.markdown(f"**{state.uploaded_file.name}**")
-
-            with file_col2:
-                st.markdown(f"Size: ~{state.uploaded_file.size / 1000**2:.1f} MB")
-        else:
-            state.uploaded_file = st.file_uploader("Select File")
-
-            if state.uploaded_file:
-                df, msgs, is_valid_file = validate(state.uploaded_file)
-                state.is_valid_file = is_valid_file
-                state.df = df
-
-        col1, col2, col3 = st.beta_columns(3)
-
-        with col1:
-            state.in_freq = \
-                st.selectbox("Input Frequency",
-                    freq_options,
-                    freq_options.index(state.in_freq) if state.in_freq else 0
-                )
-
-        with col2:
-            state.horiz = \
-                st.number_input("Forecast Horizon Length",
-                    value=(state.horiz or 1), min_value=1)
-
-        with col3:
-            state.out_freq = \
-                st.selectbox("Forecast Frequency",
-                    freq_options,
-                    freq_options.index(state.out_freq) if state.out_freq else 0)
-
-        launch_button = st.button(label="Launch")
-
-        if launch_button and state.is_valid_file:
-            launch_sfs_forecast(state)
-
-    return
-
-
-def page_view_report(state):
-    """
-    """
-
-    def make_mask(df, channel, family, item_id):
-        mask = np.ones(len(df)).astype(bool)
-
-        # only mask when all three keys are non-empty
-        if channel == "" or family == "" or item_id == "":
-            return ~mask
-
-        mask &= df["channel"] == channel
-        mask &= df["family"] == family
-        mask &= df["item_id"] == item_id
-
-        return mask
-
-    def _plot_demand_classification(df_demand_cln):
-        df_plot = pd.DataFrame({"category": ["short", "medium", "continuous"]})
-        df_plot = df_plot.merge(
-            df_demand_cln["category"].value_counts(normalize=True) \
-                                   .reset_index() \
-                                   .rename({"index": "category",
-                                            "category": "frac"}, axis=1),
-            on="category", how="left"
-        )
-        df_plot["frac"] *= 100
-
-        fig = go.Figure(
-            go.Bar(
-                x=df_plot["category"], y=df_plot["frac"],
-            )
-        )
-
-        fig.update_layout(
-            margin={"t": 20, "b": 0, "r": 20, "l": 20},
-            width=250,
-            height=260,
-        )
-
-        st.plotly_chart(fig)
-
-        return
-
-    st.subheader("Report")
-
-    if state.df_results is None or state.df_pred is None:
-        st.text("Results not ready")
-        st.stop()
-
-    with st.beta_container():
-        df_pred = state.df_pred
-
-        if df_pred is None:
-            st.markdown("Results not yet ready")
-            return
-
-        df_hist = state.df_pred.query("type == 'actual'")
-        df_results = state.df_results \
-                          .assign(_index="") \
-                          .set_index("_index")
-        
-        channel_vals = [""] + sorted(df_results["channel"].unique())
-        family_vals = [""] + sorted(df_results["family"].unique())
-        item_id_vals = [""] + sorted(df_results["item_id"].unique())
-
-        num_series = df_hist[["channel", "family", "item_id"]] \
-                        .drop_duplicates() \
-                        .shape[0]
-
-        df_model_dist, sr_err, sr_err_naive, acc_increase = \
-            make_perf_summary(df_results)
-
-        cols = st.beta_columns(4)
-
-        with cols[0]:
-            n_top = 10
-            st.subheader(f"Top {n_top}")
-            st.markdown("#### By Demand")
-
-            df_top = df_hist.groupby(GROUP_COLS, as_index=False) \
-                            .agg({"demand": sum}) \
-                            .sort_values(by="demand", ascending=False) \
-                            .head(n_top) \
-                            .reset_index(drop=True)
-
-            #df_top["demand"] = df_top["demand"].apply(lambda x: f"{x:,.0f}")
-            df_top = df_top.assign(_index=np.arange(n_top)+1).set_index("_index")
-
-            #st.text(df_top.to_markdown(index=False, tablefmt="simple", floatfmt=",.0f"), headers=[])
-            st.text(tabulate(df_top, floatfmt=",.0f", showindex="never",
-                tablefmt="plain", headers="keys"))
-
-        with cols[1]:
-            st.subheader("Summary")
-            st.markdown("#### Historical")
-            st.text(f"No. Series: {num_series}\n"
-                    f"Frequency:  {state.freq_in}\n"
-                    f"Channels:   {len(channel_vals)-1}\n"
-                    f"Families:   {len(family_vals)-1}\n"
-                    f"Items:      {len(item_id_vals)-1}\n"
-            )
-
-            st.markdown("#### Forecast")
-            st.text(f"Horizon:    {state.horiz}\n"
-                    f"Frequency:  {state.freq_out}")
-
-        with cols[2]:
-            st.subheader("Demand Classification")
-            _plot_demand_classification(state.df_demand_cln)
-
-        with cols[3]:
-            acc = (1 - sr_err.err_mean) * 100.
-            acc_naive = (1 - sr_err_naive.err_mean) * 100.
-
-            st.subheader("Performance")
-            st.markdown("#### Forecast Accuracy")
-            st.markdown(f"## {acc:.0f}%")
-            st.markdown(f"(_{acc - acc_naive:.0f}% increase vs. naive_)")
-            st.markdown("#### Best performing models")
-
-            df_model_dist = df_model_dist.query("perc > 0")
-            labels = df_model_dist["model_type"].values
-            values = df_model_dist["perc"].values
-
-            fig = go.Figure(data=[go.Pie(labels=labels, values=values, hole=0.5)])
-            fig.update(layout_showlegend=False)
-            fig.update_layout(
-                margin={"t": 20, "b": 0, "r": 20, "l": 20},
-                width=200,
-                height=200,
-            )
-            fig.update_traces(textposition="outside", textinfo="percent+label")
-            st.plotly_chart(fig)
-
-
-        st.subheader("Visualization")
-        col1, col2 = st.beta_columns([1,4])
-
-        with col1:
-            st.markdown("#### Filter")
-
-            # get default choices
-            channel_index = channel_vals.index(df_top["channel"].iloc[0])
-            family_index = family_vals.index(df_top["family"].iloc[0])
-            item_id_index = item_id_vals.index(df_top["item_id"].iloc[0])
-
-            channel_choice = st.selectbox("Channel", channel_vals, index=channel_index)
-            family_choice = st.selectbox("Family", family_vals, index=family_index)
-            item_id_choice = st.selectbox("Item ID", item_id_vals, index=item_id_index)
-
-        with col2:
-            results_mask = \
-                make_mask(df_results, channel_choice, family_choice, item_id_choice)
-            pred_mask = \
-                make_mask(df_pred, channel_choice, family_choice, item_id_choice)
-
-            df_plot = df_pred[pred_mask]
-
-            st.markdown("#### Chart")
-
-            if len(df_plot) > 0:
-
-                # display the line chart
-                #fig = pex.line(df_plot, x="timestamp", y="demand", color="type")
-
-                y = df_plot.query("type == 'actual'")["demand"]
-                y_ts = df_plot.query("type == 'actual'")["timestamp"]
-
-                yp = df_plot.query("type == 'fcast'")["demand"]
-                yp_ts = df_plot.query("type == 'fcast'")["timestamp"]
-
-                fig = go.Figure()
-                fig.add_trace(go.Scatter(
-                    x=y_ts, y=y, mode='lines+markers', name="actual",
-                    marker=dict(size=4)
-                ))
-                fig.add_trace(go.Scatter(
-                    x=yp_ts, y=yp, mode='lines+markers', name="forecast", line_dash="dot",
-                    marker=dict(size=4)
-                ))
-        #       fig.update_layout(
-        #           xaxis={
-        #               "showgrid": True,
-        #               "gridcolor": "lightgrey",
-        #           },
-        #           yaxis={
-        #               "showgrid": True,
-        #               "gridcolor": "lightgrey",
-        #           }
-        #       )
-                fig.update_layout(
-                        margin={"t": 30, "b": 0, "r": 0, "l": 40},
-                    height=290,
-                    legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor":"center", "x": 0.5}
-                )
-                st.plotly_chart(fig, use_container_width=True)
-
-#       report_f = state.df_results.to_csv(index=False)
-#       report_b64 = base64.b64encode(report_f.encode()).decode()
-#       report_fn = f"{state.uploaded_file.name}_report.csv"
-
-#       href_html = f"""
-#       - <a href='data:file/csv;base64,{forecast_b64}' download='{forecast_fn}'>{forecast_fn}</a>
-#       - <a href='data:file/csv;base64,{report_b64}' download='{report_fn}'>{report_fn}</a>
-#       """
-
-#       st.subheader("Downloads")
-#       dl_button = st.button("Download Forecast")
-
-#       if dl_button:
-#           f = state.df_pred.to_csv(index=False)
-#           forecast_b64 = base64.b64encode(f.encode()).decode()
-#           forecast_fn = f"{state.uploaded_file.name}_forecast.csv"
-
-#           report_f = state.df_results.to_csv(index=False)
-#           report_b64 = base64.b64encode(report_f.encode()).decode()
-#           report_fn = f"{state.uploaded_file.name}_report.csv"
-
-#           href_html = f"""
-#           - <a href="javascript:void(0)" onclick="location.href='data:file/csv;base64,{report_b64}'" download='{report_fn}'>{report_fn}</a>
-#           """
-
-#           st.markdown(href_html, unsafe_allow_html=True)
-
-#       - <a href='data:file/csv;base64,{report_b64}' download='{report_fn}'>{report_fn}</a>
-#       """
-
-
-
-#       with col3:
-#           st.markdown("#### Summary")
-
-#       st.subheader("DEBUGGING OUTPUT")
-#       st.text("df_results[mask]")
-#       st.dataframe(df_pred[pred_mask])
-
-#        if len(df) > 0:
-#            #
-#            # Display the chart
-#            #
-#            fig = pex.line(df, x="timestamp", y="demand", color="type")
-#
-#    #       #fig.add_vline(x="2016-01-01", line_width=1, line_dash="dot")
-#    #       #fig.add_vline(x="2017-01-01", line_width=1, line_dash="dot")
-#
-#            fig.update_layout(
-#                xaxis={
-#                    "showgrid": True,
-#                    "gridcolor": "lightgrey",
-#                },
-#                yaxis={
-#                    "showgrid": True,
-#                    "gridcolor": "lightgrey",
-#                }
-#            )
-#
-#            st.plotly_chart(fig, use_container_width=True)
-#
-
-    return
-
-
 def run_ml_state_machine():
     """Execute the Amazon Forecast state machine.
 
@@ -1706,9 +1400,6 @@ if __name__ == "__main__":
         help="ARN/name of the lambdamap function",
         default="SfsLambdaMapFunction")
 
-#   parser.add_argument("--ml-state-machine-arn", type=str,
-#       help="ARN of the ML state machine", default=None)
-
     args = parser.parse_args()
 
     assert(os.path.exists(os.path.expanduser(args.local_dir)))
@@ -1744,10 +1435,6 @@ if __name__ == "__main__":
     st.title("Create Forecasts")
     st.markdown("")
 
-    if False:
-        with st.beta_expander("💾 Load/Save Report"):
-            pass
-
     panel_load_data()
     panel_data_health()
 
@@ -1755,25 +1442,8 @@ if __name__ == "__main__":
     panel_accuracy()
     panel_top_performers()
     panel_visualization()
+    panel_downloads()
 
     panel_ml_launch()
     panel_ml_forecast_summary()
     panel_ml_visualization()
-
-    if False:
-        with st.beta_expander("Downloads", expanded=False):
-            ml_downloads_button = \
-                st.button("Generate Downloads", key="ml_gen_downloads")
-
-            if ml_downloads_button:
-                with st.spinner("Generating downloads ..."):
-                    time.sleep(0.5)
-
-                    # generate presigned download url
-
-                    st.info(textwrap.dedent(f"""
-                    - [Forecast]()
-                    - [Results]()
-
-                    ####
-                    """))
