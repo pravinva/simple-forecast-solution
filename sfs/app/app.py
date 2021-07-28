@@ -56,6 +56,7 @@ from sfs import (load_data, resample, run_pipeline, run_cv_select,
 
 from lambdamap import LambdaExecutor, LambdaFunction
 from awswrangler.exceptions import NoFilesFound
+from streamlit import caching
 from streamlit.uploaded_file_manager import UploadedFile
 from streamlit.script_runner import RerunException
 from st_aggrid import AgGrid, GridOptionsBuilder, JsCode
@@ -107,6 +108,10 @@ def validate(df):
     is_valid_file = len(err_msgs) == 0
 
     return df, msgs, is_valid_file
+
+
+def reset_state():
+    state["report"] = {"data": {}, "sfs": {}, "afc": {}}
 
 
 @st.cache
@@ -1454,16 +1459,28 @@ if __name__ == "__main__":
 
     st.write(state["report"])
 
+    #
+    # Sidebar
+    #
     st.sidebar.title("Amazon Simple Forecast Solution")
     st.sidebar.markdown(textwrap.dedent("""
     - [github](https://github.com/aws-samples/simple-forecast-solution)
     """))
 
+    #
+    # Main page
+    #
     st.subheader("Amazon Simple Forecast Solution")
     st.title("Create Forecasts")
     st.markdown("")
 
     panel_load_data()
+
+    if st.button("Reset Form"):
+        reset_state()
+        caching.clear_cache()
+        raise RerunException(None)
+
     panel_data_health()
 
     panel_launch()
