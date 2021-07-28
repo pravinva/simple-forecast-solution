@@ -42,6 +42,9 @@ aws lambda invoke --function-name {sns_lambda_function} \
     --payload '{{"landing_page_url": "'$LANDING_PAGE_URL'", "dashboard_url": "'$DASHBOARD_URL'"}}' \
     /dev/stdout
 
+# Update the url in the landing page
+sed -i 's|INSERT_URL_HERE|'$LANDING_PAGE_URL'|' /home/ec2-user/SageMaker/SFS_Landing_Page.ipynb
+
 #
 # Start SFS dashboard in the background
 #
@@ -56,7 +59,6 @@ pip install -q -e .
 
 git clone https://github.com/aws-samples/simple-forecast-solution.git
 cd ./simple-forecast-solution/
-git checkout develop
 pip install -q -e .
 
 nohup streamlit run -- ./sfs/app/app.py --local-dir /home/ec2-user/SageMaker/ &
@@ -80,7 +82,7 @@ cd ./simple-forecast-solution
 #pip install -q -e .
 
 # Copy the landing page to the user SFS workspace
-cp -rp ./sm-bootstrap/SFS_Landing_Page.ipynb /home/ec2-user/SageMaker/
+cp -rp ./sm-bootstrap/SFS_Landing_Page.ipynb ./images/ /home/ec2-user/SageMaker/
 chmod a+rwx /home/ec2-user/SageMaker/SFS_Landing_Page.ipynb
 
 # Install aws-cdk
