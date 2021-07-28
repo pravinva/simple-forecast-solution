@@ -1628,8 +1628,9 @@ if __name__ == "__main__":
     st.title("Create Forecasts")
     st.markdown("")
 
-    with st.beta_expander("💾 Load/Save Report"):
-        pass
+    if False:
+        with st.beta_expander("💾 Load/Save Report"):
+            pass
 
     panel_load_data()
     panel_data_health()
@@ -1643,19 +1644,20 @@ if __name__ == "__main__":
     panel_ml_forecast_summary()
     panel_ml_visualization()
 
-    with st.beta_expander("Downloads", expanded=False):
-        ml_downloads_button = \
-            st.button("Generate Downloads", key="ml_gen_downloads")
+    if False:
+        with st.beta_expander("Downloads", expanded=False):
+            ml_downloads_button = \
+                st.button("Generate Downloads", key="ml_gen_downloads")
 
-        if ml_downloads_button:
-            with st.spinner("Generating downloads ..."):
-                time.sleep(0.5)
+            if ml_downloads_button:
+                with st.spinner("Generating downloads ..."):
+                    time.sleep(0.5)
 
-                # generate presigned download url
+                    # generate presigned download url
 
-                st.info(textwrap.dedent(f"""
-                - [Forecast]()
-                - [Results]()
+                    st.info(textwrap.dedent(f"""
+                    - [Forecast]()
+                    - [Results]()
 
-                ####
-                """))
+                    ####
+                    """))
