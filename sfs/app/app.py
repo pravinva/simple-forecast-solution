@@ -56,7 +56,7 @@ from lambdamap import LambdaExecutor, LambdaFunction
 from awswrangler.exceptions import NoFilesFound
 from streamlit.uploaded_file_manager import UploadedFile
 from streamlit.script_runner import RerunException
-from st_aggrid import AgGrid, GridOptionsBuilder
+from st_aggrid import AgGrid, GridOptionsBuilder, JsCode
 from humanfriendly import format_timespan
 
 
@@ -187,16 +187,37 @@ def run_lambdamap(df, horiz, freq):
     return wait_for
 
 
-def display_ag_grid(df, auto_height=False, pagination=False):
+def display_ag_grid(df, auto_height=False, paginate=False,
+    comma_cols=("demand",)):
     """
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+    auto_height : bool
+    pagination : bool
+    comma_cols : tuple
+        Columns to apply comma thousands separator.
+
     """
 
     gb = GridOptionsBuilder.from_dataframe(df)
     #gb.configure_selection("single")
     gb.configure_auto_height(auto_height)
-    gb.configure_pagination(enabled=pagination)
+    gb.configure_pagination(enabled=paginate)
 
-    AgGrid(df, gridOptions=gb.build())
+    comma_renderer = JsCode(textwrap.dedent("""
+    function(params) {
+        return  params.value
+                      .toString()
+                      .split( /(?=(?:\d{3})+(?:\.|$))/g ).join( "," )
+    }
+    """))
+
+    for col in comma_cols:
+        gb.configure_column(col, cellRenderer=comma_renderer)
+
+    AgGrid(df, gridOptions=gb.build(), allow_unsafe_jscode=True)
 
     return
 
@@ -809,11 +830,12 @@ def panel_top_performers():
         st.write("#### Summary")
 
         with st.spinner("Loading **Summary** table"):
-            display_ag_grid(df_grp_summary, auto_height=True)
+            display_ag_grid(df_grp_summary, auto_height=True,
+                comma_cols=("demand",))
 
         st.write("#### Groups")
         with st.spinner("Loading **Groups** table ..."):
-            display_ag_grid(df_grp, pagination=True)
+            display_ag_grid(df_grp, paginate=True, comma_cols=("demand",))
 
         st.text(f"(completed in {format_timespan(time.time() - start)})")
 

@@ -59,7 +59,7 @@ cd ./simple-forecast-solution/
 git checkout develop
 pip install -q -e .
 
-nohup streamlit run -- ./sfs/app/app.py --local-file-dir /home/ec2-user/SageMaker/ &
+nohup streamlit run -- ./sfs/app/app.py --local-dir /home/ec2-user/SageMaker/ &
 """
 
 # This is run *once* ever, upon the *creation* of the notebook
@@ -155,7 +155,7 @@ class SfsStack(cdk.Stack):
 
         email_address = core.CfnParameter(self, "emailAddress")
         instance_type = core.CfnParameter(self, "instanceType",
-                default="ml.t3.large")
+                default="ml.t3.xlarge")
 
         #
         # S3 Bucket
@@ -257,6 +257,6 @@ class SfsStack(cdk.Stack):
             self,
             f"{construct_id}-NotebookInstance",
             role_arn=sm_role.role_arn,
-            instance_type="ml.t3.large",
+            instance_type=instance_type.value_as_string,
             notebook_instance_name=notebook_instance_name,
             lifecycle_config_name=lcc.attr_notebook_instance_lifecycle_config_name)

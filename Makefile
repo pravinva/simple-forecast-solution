@@ -20,4 +20,5 @@ destroy:
 	cd sm-bootstrap ; cdk destroy --all
 
 SfsStack:
-	cd sm-bootstrap ; cdk deploy --all --parameters $@:emailAddress=${EMAIL} $@:instanceType=${INSTANCE_TYPE}
+	cd sm-bootstrap ; \
+		cdk deploy --all --parameters $@:emailAddress=${EMAIL} --parameters $@:instanceType=${INSTANCE_TYPE}
