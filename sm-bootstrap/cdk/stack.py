@@ -82,7 +82,7 @@ cd ./simple-forecast-solution
 #pip install -q -e .
 
 # Copy the landing page to the user SFS workspace
-cp -rp ./sm-bootstrap/SFS_Landing_Page.ipynb ./images/ /home/ec2-user/SageMaker/
+cp -rp ./sm-bootstrap/SFS_Landing_Page.ipynb ./sm-bootstrap/images/ /home/ec2-user/SageMaker/
 chmod a+rwx /home/ec2-user/SageMaker/SFS_Landing_Page.ipynb
 
 # Install aws-cdk
