@@ -128,19 +128,18 @@ def create_predictor_handler(event, context):
     update_status_json(payload, "IN_PROGRESS:create_predictor",
         payload["StatusJsonS3Path"])
 
-    PREFIX = event["input"]["Payload"]["prefix"]
     AFC_DATASET_GROUP_ARN = payload["DatasetGroupArn"]
     AFC_FORECAST_HORIZON = payload["horiz"]
     AFC_FORECAST_FREQUENCY = payload["freq"]
-    AFC_ALGORITHM_NAME = "NPTS"
-    AFC_ALGORITHM_ARN = "arn:aws:forecast:::algorithm/NPTS"
-    AFC_PREDICTOR_NAME = f"{PREFIX}_{AFC_ALGORITHM_NAME}"
+    #AFC_ALGORITHM_NAME = "NPTS"
+    #AFC_ALGORITHM_ARN = "arn:aws:forecast:::algorithm/NPTS"
+    AFC_PREDICTOR_NAME = f"{prefix}_AutoML"
 
     create_predictor_resp = afc.create_predictor(
         PredictorName=AFC_PREDICTOR_NAME,
         ForecastHorizon=AFC_FORECAST_HORIZON,
-        AlgorithmArn=AFC_ALGORITHM_ARN, # TODO: delete this when ready
-        #PerformAutoML=True, # TODO: Uncomment this when ready
+        #AlgorithmArn=AFC_ALGORITHM_ARN, # TODO: delete this when ready
+        PerformAutoML=True, # TODO: Uncomment this when ready
         #PerformHPO=False,
         InputDataConfig={
             "DatasetGroupArn": AFC_DATASET_GROUP_ARN

@@ -38,7 +38,7 @@ def lambda_handler(event, context):
 
     response = client.publish(
         TopicArn=os.environ["TOPIC_ARN"],
-        Subject="[Amazon SFS] Your Amazon Forecast job has completed!",
+        Subject="[Amazon SFA] Your Amazon Forecast job has completed!",
         Message=textwrap.dedent(f'''
         Hi!
 

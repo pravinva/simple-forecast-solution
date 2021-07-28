@@ -313,6 +313,12 @@ def save_report():
     if "report" not in state:
         return
 
+    if "path" not in state["report"]["data"]:
+        st.warning(textwrap.dedent(f"""
+        Warning: unable to save report, no input data was loaded.
+        """))
+        return
+
     with st.spinner("Saving Report ..."):
         now_str = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
         basename = os.path.basename(state["report"]["data"]["path"])
@@ -497,13 +503,12 @@ def panel_load_report():
                                 globs=("*.pkl.gz",)) 
         elif report_source == "s3":
             # list the reports in the s3 bucket
-            bucket = "sfsstack-968297339674-ap-southeast-2"
-            prefix = "sfs-reports/"
-            df_reports = make_df_reports(bucket, prefix)
-            grid_resp = \
-                display_ag_grid(df_reports, paginate=True, comma_cols=[],
-                                selection_mode="single", use_checkbox=True)
-            st.write(grid_resp)
+#           df_reports = make_df_reports(bucket, prefix)
+#           grid_resp = \
+#               display_ag_grid(df_reports, paginate=True, comma_cols=[],
+#                               selection_mode="single", use_checkbox=True)
+#           st.write(grid_resp)
+            pass
         else:
             raise NotImplementedError
 
@@ -1166,15 +1171,21 @@ def panel_ml_launch():
                 state.report["afc"]["horiz"] = horiz
                 state.report["afc"]["freq"] = freq
 
-                execution_arn, status_json_s3_path = run_ml_state_machine()
+                execution_arn, prefix, status_json_s3_path = \
+                    run_ml_state_machine()
 
                 state.report["afc"]["execution_arn"] = execution_arn
                 state.report["afc"]["status_json_s3_path"] = status_json_s3_path
+                state.report["afc"]["prefix"] = prefix
 
-        ml_refresh_job_button = st.button("Refresh Job Status")
         execution_arn = state.report["afc"].get("execution_arn", None)
+        ml_refresh_job_button = st.button("Refresh Job Status")
 
         if ml_refresh_job_button:
+            if execution_arn is None:
+                st.warning("Job not yet launched")
+                return
+
             with st.spinner("Checking job status ..."):
                 sfn_status, status_dict = refresh_ml_state_machine_status()
                 sfn_state = status_dict["PROGRESS"]["state"]
@@ -1276,6 +1287,10 @@ def panel_ml_visualization():
     if df is None or df_ml_results is None or df_ml_preds is None:
         return
 
+    freq = state.report["afc"]["freq"]
+    horiz = state.report["afc"]["horiz"]
+    start = time.time()
+
     df_top = df.groupby(["channel", "family", "item_id"], as_index=False) \
                .agg({"demand": sum}) \
                .sort_values(by="demand", ascending=False)
@@ -1327,29 +1342,28 @@ def panel_ml_visualization():
             fig = go.Figure()
             fig.add_trace(go.Scatter(
                 x=y_ts, y=y, mode='lines+markers', name="actual",
-                marker=dict(size=4)
+                fill="tozeroy", marker=dict(size=4)
             ))
             fig.add_trace(go.Scatter(
-                x=yp_ts, y=yp, mode='lines+markers', name="forecast", line_dash="dot",
-                marker=dict(size=4)
+                x=yp_ts, y=yp, mode='lines+markers', name="forecast",
+                fill="tozeroy", marker=dict(size=4)
             ))
-    #       fig.update_layout(
-    #           xaxis={
-    #               "showgrid": True,
-    #               "gridcolor": "lightgrey",
-    #           },
-    #           yaxis={
-    #               "showgrid": True,
-    #               "gridcolor": "lightgrey",
-    #           }
-    #       )
             fig.update_layout(
                 margin={"t": 0, "b": 0, "r": 0, "l": 0},
                 height=250,
                 legend={"orientation": "h", "yanchor": "bottom", "y": 1.0, "xanchor":"left", "x": 0.0}
             )
+
+            fig.update_xaxes(rangeslider_visible=True)
+
+            initial_range = pd.date_range(end=yp_ts.max(), periods=horiz*8, freq=freq)
+            initial_range = [max(initial_range[0], y_ts.min()), initial_range[-1]]
+
+            fig["layout"]["xaxis"].update(range=initial_range)
             st.plotly_chart(fig, use_container_width=True)
 
+        plot_duration = time.time() - start
+        st.text(f"(completed in {format_timespan(plot_duration)})")
 
     return
 
@@ -1422,7 +1436,7 @@ def run_ml_state_machine():
     status_json_s3_path = \
         os.path.join(s3_output_path, f'{prefix}_status.json')
 
-    return resp["executionArn"], status_json_s3_path
+    return resp["executionArn"], prefix, status_json_s3_path
 
 
 def refresh_ml_state_machine_status():
@@ -1452,6 +1466,14 @@ def file_selectbox(label, folder, globs=("*.csv", "*.csv.gz")):
     return fn
 
 
+def nav_radio_format_func(s):
+    if s == "create_report":
+        return "📄 Create Report"
+    elif s == "load_report":
+        return "⬆️ Load Report"
+    return
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
@@ -1468,6 +1490,29 @@ if __name__ == "__main__":
     assert(os.path.exists(os.path.expanduser(args.local_dir)))
 
     #st.set_page_config(layout="wide")
+
+    #
+    # Sidebar
+    #
+    st.sidebar.title("Amazon Simple Forecast Solution")
+    st.sidebar.markdown(textwrap.dedent("""
+    - [github](https://github.com/aws-samples/simple-forecast-solution)
+    """))
+
+    nav_radio_btn = \
+        st.sidebar.radio("Navigation", ["create_report", "load_report"],
+                         format_func=nav_radio_format_func)
+
+    save_report_btn = st.sidebar.button("💾 Save Report")
+    clear_report_btn = st.sidebar.button("❌ Clear Report")
+
+    if save_report_btn:
+        save_report()
+
+    if clear_report_btn:
+        state.pop("report")
+
+
 
     if "report" not in state:
         state["report"] = {"data": {}, "sfs": {}, "afc": {}}
@@ -1491,43 +1536,19 @@ if __name__ == "__main__":
         state["report"]["sfs"]["s3_sfs_reports_path"] = \
             f's3://{state["report"]["s3_bucket"]}/sfs-reports'
 
-
-    #st.write(state["report"])
-
-    #
-    # Sidebar
-    #
-    st.sidebar.title("Amazon Simple Forecast Solution")
-    st.sidebar.markdown(textwrap.dedent("""
-    - [github](https://github.com/aws-samples/simple-forecast-solution)
-    """))
-
-    create_report_btn = st.sidebar.button("📄 Create Report")
-    load_report_btn = st.sidebar.button("⬆️ Load Report")
-    save_report_btn = st.sidebar.button("💾 Save Report")
-    clear_report_btn = st.sidebar.button("❌ Clear Report")
-
-    if save_report_btn:
-        save_report()
-
     #
     # Main page
     #
     st.subheader("Amazon Simple Forecast Solution")
 
-    if save_report_btn:
+    if nav_radio_btn == "create_report":
         st.title("Create Report")
         st.markdown("")
         panel_load_data()
-
-    if load_report_btn:
+    elif nav_radio_btn == "load_report":
         st.title("Load Report")
         st.markdown("")
         panel_load_report()
-
-    if clear_report_btn:
-        #st.sidebar("Are you sure?", ["Yes", "No"], index=1)
-        pass
 
     panel_data_health()
 
