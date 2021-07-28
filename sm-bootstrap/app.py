@@ -11,22 +11,16 @@ from aws_cdk import core as cdk
 from aws_cdk import core
 
 from cdk.stack import SfsStack
-from cdk.afc_stack import AfcStack
 
 PWD = os.path.dirname(os.path.realpath(__file__))
 
 app = core.App()
 
 boot_stack_name = app.node.try_get_context("sfs_stack_name")
-afc_stack_name = app.node.try_get_context("afc_stack_name")
 
 if boot_stack_name is None:
     boot_stack_name = "SfsStack"
 
-if afc_stack_name is None:
-    afc_stack_name = "AfcStack"
-
 boot_stack = SfsStack(app, boot_stack_name)
-AfcStack(boot_stack, afc_stack_name)
 
 app.synth()
