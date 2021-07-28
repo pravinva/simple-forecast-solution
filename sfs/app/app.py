@@ -269,6 +269,35 @@ def create_presigned_url(s3_path, expiration=3600):
     return response
 
 
+def make_df_backtests(df_results):
+    """Expand df_results to a "long" dataframe with the columns:
+    channel, family, item_id, timestamp, actual, backtest.
+
+    """
+
+    def _expand(dd):
+        ts = np.hstack(dd["ts_cv"].apply(np.hstack))    
+        ys = np.hstack(dd["y_cv"].apply(np.hstack))
+        yp = np.hstack(dd["yp_cv"].apply(np.hstack))
+              
+        df = pd.DataFrame({"timestamp": ts, "demand": ys, "backtest": yp})
+        df.insert(0, "channel", dd["channel"].iloc[0])
+        df.insert(1, "family", dd["family"].iloc[0])
+        df.insert(2, "item_id", dd["item_id"].iloc[0])
+        df["timestamp"] = pd.DatetimeIndex(df["timestamp"]).strftime("%Y-%m-%d")
+            
+        return df
+
+    df_expanded = \
+        df_results.groupby(["channel", "family", "item_id"], as_index=False, sort=False) \
+                  .apply(_expand) \
+                  .reset_index(drop=True) \
+                  .sort_values(by=["channel", "family", "item_id", "timestamp"]) \
+                  .reset_index(drop=True)
+
+    return df_expanded
+
+
 #
 # Panels
 #
@@ -1032,20 +1061,35 @@ def panel_downloads():
         return
 
     with st.beta_expander("⬇️  Downloads"):
-        if st.button("Export", key="sfs_export_forecast_btn"):
+        export_forecasts_btn = \
+            st.button("Export Forecasts", key="sfs_export_forecast_btn")
+
+        if export_forecasts_btn:
+            start = time.time()
+
             with st.spinner("Exporting Forecasts ..."):
                 now_str = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
                 basename = os.path.basename(state["report"]["data"]["path"])
                 s3_sfs_export_path = state["report"]["sfs"]["s3_sfs_export_path"]
-                s3_path = f'{s3_sfs_export_path}/{basename}_{now_str}_sfs-forecast.csv.gz'
+                s3_forecasts_path = f'{s3_sfs_export_path}/{basename}_{now_str}_sfs-forecast.csv.gz'
 
-                wr.s3.to_csv(df_preds, s3_path, compression="gzip", index=False)
+                wr.s3.to_csv(df_preds, s3_forecasts_path, compression="gzip", index=False)
 
-                # generate presigned s3 url for user to download
-                signed_url = create_presigned_url(s3_path)
+                forecasts_signed_url = create_presigned_url(s3_forecasts_path)
+
+                s3_backtests_path = f'{s3_sfs_export_path}/{basename}_{now_str}_sfs-backtests.csv.gz'
+
+                df_backtests = make_df_backtests(df_results)
+                wr.s3.to_csv(df_backtests, s3_backtests_path, compression="gzip", index=False)
+                backtests_signed_url = create_presigned_url(s3_backtests_path)
 
                 st.info(textwrap.dedent(f"""
-                Your forecast export is ready [here]({signed_url})."""))
+                The forecasts file is ready [here]({forecasts_signed_url}).  
+                The backtests file is ready [here]({backtests_signed_url}).
+                """))
+
+                plot_duration = time.time() - start
+                st.text(f"(completed in {format_timespan(plot_duration)})")
 
     return
 
