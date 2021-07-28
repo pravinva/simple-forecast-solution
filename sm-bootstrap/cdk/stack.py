@@ -244,7 +244,8 @@ class SfsStack(cdk.Stack):
                 iam.ManagedPolicy.from_aws_managed_policy_name("AWSCloudFormationFullAccess"),
                 iam.ManagedPolicy.from_aws_managed_policy_name("AWSLambda_FullAccess"),
                 iam.ManagedPolicy.from_aws_managed_policy_name("EC2InstanceProfileForImageBuilderECRContainerBuilds"),
-                iam.ManagedPolicy.from_aws_managed_policy_name("IAMFullAccess")
+                iam.ManagedPolicy.from_aws_managed_policy_name("IAMFullAccess"),
+                iam.ManagedPolicy.from_aws_managed_policy_name("AmazonSSMReadOnlyAccess")
             ])
 
         #
