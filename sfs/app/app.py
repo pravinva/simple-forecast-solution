@@ -747,7 +747,6 @@ def make_df_top(df, df_results, groupby_cols, dt_start, dt_stop, cperc_thresh):
     def calc_period_metrics(dd, dt_start, dt_stop):
         """
         """
-        
         dt_start = pd.Timestamp(dt_start)
         dt_stop = pd.Timestamp(dt_stop)
         ts = np.hstack(dd["ts_cv"].apply(np.hstack))
@@ -808,6 +807,8 @@ def make_df_top(df, df_results, groupby_cols, dt_start, dt_stop, cperc_thresh):
     df_grp["demand"] = df_grp["demand"].round(0)
     df_grp["% total demand"] = df_grp["% total demand"].round(1)
     df_grp["% accuracy"] = df_grp["% accuracy"].round(0)
+    df_grp.insert(0, "rank", np.arange(df_grp.shape[0]) + 1)
+
     df_grp_summary["demand"] = df_grp_summary["demand"].round(0)
     df_grp_summary["% total demand"] = df_grp_summary["% total demand"].round(1)
     
@@ -856,23 +857,6 @@ def panel_top_performers():
             df_grp, df_grp_summary = \
                 make_df_top(df, df_results, groupby_cols, dt_start, dt_stop, cperc_thresh)
 
-#       mean_acc = df_grp_summary["accuracy"].values[0]
-#       total_demand = df_grp_summary["demand"].values[0]
-#       perc_demand = df_grp_summary["% total demand"].values[0]
-
-#       _cols = st.beta_columns([1,2])
-
-#       with _cols[0]:
-#           st.markdown("#### Summary")
-#           st.text(textwrap.dedent(f"""
-#           Avg. Accuracy:\t{int(mean_acc):d} %  
-#           Demand:\t\t{total_demand:.0f} 
-#           % Total Demand:\t{perc_demand:.0f} %
-#           """))
-
-#       with _cols[1]:
-#           st.markdown("#### Results")
-#           display_ag_grid(df_grp)
         st.write("#### Group Summary")
 
         with st.spinner("Loading **Summary** table"):
