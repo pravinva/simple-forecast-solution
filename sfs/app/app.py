@@ -32,6 +32,7 @@ import textwrap
 import argparse
 import re
 import json
+import logging
 
 import boto3
 import numpy as np
@@ -44,6 +45,7 @@ import plotly.graph_objects as go
 from collections import OrderedDict, deque, namedtuple
 from concurrent import futures
 from urllib.parse import urlparse
+from botocore.exceptions import ClientError
 from sspipe import p, px
 from streamlit import session_state as state
 from stqdm import stqdm
@@ -237,6 +239,34 @@ def valid_launch_freqs():
         raise NotImplementedError
 
     return valid_freqs
+
+
+def create_presigned_url(s3_path, expiration=3600):
+    """Generate a presigned URL to share an S3 object
+
+    :param bucket_name: string
+    :param object_name: string
+    :param expiration: Time in seconds for the presigned URL to remain valid
+    :return: Presigned URL as string. If error, returns None.
+    """
+
+    parsed_url = urlparse(s3_path, allow_fragments=False)
+    bucket_name = parsed_url.netloc
+    object_name = parsed_url.path.strip("/")
+
+    # Generate a presigned URL for the S3 object
+    s3_client = boto3.client('s3')
+    try:
+        response = s3_client.generate_presigned_url('get_object',
+                                                    Params={'Bucket': bucket_name,
+                                                            'Key': object_name},
+                                                    ExpiresIn=expiration)
+    except ClientError as e:
+        logging.error(e)
+        return None
+
+    # The response contains the presigned URL
+    return response
 
 
 #
@@ -796,10 +826,6 @@ def panel_top_performers():
             groupby_cols = st.multiselect("Group By",
                 ["channel", "family", "item_id"], ["channel", "family", "item_id"])
 
-#           channel_checkbox = st.checkbox("channel", value=True)
-#           family_checkbox = st.checkbox("family", value=True)
-#           item_id_check = st.checkbox("item_id", value=True)
-
         with _cols[1]:
             dt_start = st.date_input("Start", value=dt_min, min_value=dt_min, max_value=dt_max)
         with _cols[2]:
@@ -834,7 +860,7 @@ def panel_top_performers():
 #       with _cols[1]:
 #           st.markdown("#### Results")
 #           display_ag_grid(df_grp)
-        st.write("#### Summary")
+        st.write("#### Group Summary")
 
         with st.spinner("Loading **Summary** table"):
             display_ag_grid(df_grp_summary, auto_height=True,
@@ -845,6 +871,22 @@ def panel_top_performers():
             display_ag_grid(df_grp, paginate=True, comma_cols=("demand",))
 
         st.text(f"(completed in {format_timespan(time.time() - start)})")
+
+        if st.button("Export"):
+            with st.spinner("Exporting **Top Performers** ..."):
+                # write the dataframe to s3
+                now_str = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+                basename = os.path.basename(state["report"]["data"]["path"])
+                s3_sfs_export_path = state["report"]["sfs"]["s3_sfs_export_path"]
+                s3_path = f'{s3_sfs_export_path}/{basename}_{now_str}_sfs-top-performers.csv.gz'
+
+                wr.s3.to_csv(df_grp, s3_path, compression="gzip", index=False)
+
+                # generate presigned s3 url for user to download
+                signed_url = create_presigned_url(s3_path)
+
+                st.info(textwrap.dedent(f"""
+                Your export is ready [here]({signed_url})."""))
 
     return
 
@@ -1676,10 +1718,22 @@ if __name__ == "__main__":
     if "report" not in state:
         state["report"] = {"data": {}, "sfs": {}, "afc": {}}
 
-    pages = {
-        "Create Forecast": None, #page_upload_file,
-        "View Report": page_view_report
-    }
+    # populate state global variables from ssm
+    ssm_client = boto3.client("ssm")
+
+    if "s3_afc_export_path" not in state["report"]["afc"]:
+        state["report"]["afc"]["s3_afc_export_path"] = \
+            ssm_client.get_parameter(Name="SfsS3OutputPath")["Parameter"]["Value"].rstrip("/")
+
+    if "s3_bucket" not in state["report"]:
+        state["report"]["s3_bucket"] = \
+            ssm_client.get_parameter(Name="SfsS3Bucket")["Parameter"]["Value"].strip("/")
+
+    if "s3_sfs_export_path" not in state["report"]:
+        state["report"]["sfs"]["s3_sfs_export_path"] = \
+            f's3://{state["report"]["s3_bucket"]}/sfs_exports'
+
+    st.write(state["report"])
 
     st.sidebar.title("Amazon Simple Forecast Solution")
     st.sidebar.markdown(textwrap.dedent("""
