@@ -33,6 +33,7 @@ import argparse
 import re
 import json
 import logging
+import gzip
 
 import boto3
 import numpy as np
@@ -41,6 +42,8 @@ import awswrangler as wr
 import streamlit as st
 import plotly.express as pex
 import plotly.graph_objects as go
+import cloudpickle
+import gzip
 
 from collections import OrderedDict, deque, namedtuple
 from concurrent import futures
@@ -108,10 +111,6 @@ def validate(df):
     is_valid_file = len(err_msgs) == 0
 
     return df, msgs, is_valid_file
-
-
-def reset_state():
-    state["report"] = {"data": {}, "sfs": {}, "afc": {}}
 
 
 @st.cache
@@ -195,7 +194,7 @@ def run_lambdamap(df, horiz, freq):
 
 
 def display_ag_grid(df, auto_height=False, paginate=False,
-    comma_cols=("demand",)):
+    comma_cols=None, selection_mode=None, use_checkbox=False):
     """
 
     Parameters
@@ -213,6 +212,10 @@ def display_ag_grid(df, auto_height=False, paginate=False,
     gb.configure_auto_height(auto_height)
     gb.configure_pagination(enabled=paginate)
 
+    if selection_mode is not None:
+        gb.configure_selection(selection_mode=selection_mode,
+            use_checkbox=use_checkbox)
+
     comma_renderer = JsCode(textwrap.dedent("""
     function(params) {
         return  params.value
@@ -224,9 +227,9 @@ def display_ag_grid(df, auto_height=False, paginate=False,
     for col in comma_cols:
         gb.configure_column(col, cellRenderer=comma_renderer)
 
-    AgGrid(df, gridOptions=gb.build(), allow_unsafe_jscode=True)
+    response = AgGrid(df, gridOptions=gb.build(), allow_unsafe_jscode=True)
 
-    return
+    return response
 
 
 def valid_launch_freqs():
@@ -301,6 +304,55 @@ def make_df_backtests(df_results):
                   .reset_index(drop=True)
 
     return df_expanded
+
+
+def save_report():
+    """
+    """
+
+    if "report" not in state:
+        return
+
+    with st.spinner("Saving Report ..."):
+        now_str = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+        basename = os.path.basename(state["report"]["data"]["path"])
+        local_path = f'/tmp/{basename}_{now_str}_sfs-report.pkl.gz'
+
+        # save the report locally
+        cloudpickle.dump(state["report"], gzip.open(local_path, "wb"))
+
+        # upload the report to s3
+        s3_path = \
+            f'{state["report"]["sfs"]["s3_sfs_reports_path"]}/{os.path.basename(local_path)}'
+
+        parsed_url = urlparse(s3_path, allow_fragments=False)
+        bucket = parsed_url.netloc
+        key = parsed_url.path.strip("/")
+
+        s3_client = boto3.client("s3")
+
+        try:
+            response = s3_client.upload_file(local_path, bucket, key)
+            signed_url = create_presigned_url(s3_path)
+
+            st.sidebar.info(textwrap.dedent(f"""
+            The report can be downloaded [here]({signed_url}).
+            """))
+        except ClientError as e:
+            logging.error(e)
+
+    return
+
+
+def make_df_reports(bucket, prefix):
+    s3 = boto3.client("s3")
+    df = pd.DataFrame()
+    df["filename"] = \
+        [e['Key'] for p in s3.get_paginator("list_objects_v2")
+            .paginate(Bucket=bucket, Prefix=prefix) for e in p['Contents']]
+    #df["s3_path"] = "s3://" + bucket + "/" + df["filename"]
+    df["filename"] = df["filename"].apply(os.path.basename)
+    return df
 
 
 #
@@ -483,6 +535,44 @@ def panel_load_data():
                 st.error(f"**Validation failed**\n\n{err_bullets}")
 
 
+    return
+
+
+def panel_load_report():
+    """
+    """
+
+    def format_func(s):
+        if s == "local":
+            return "Local Filesystem"
+        elif s == "s3":
+            return "☁️ S3"
+
+    s3 = boto3.client("s3")
+
+    with st.beta_expander("⬆️ Load Report", expanded=True):
+        report_source = st.radio("Source", ["local"], format_func=format_func)
+
+        if report_source == "local":
+            fn = file_selectbox("File", os.path.join(args.local_dir, "reports"),
+                                globs=("*.pkl.gz",)) 
+        elif report_source == "s3":
+            # list the reports in the s3 bucket
+            bucket = "sfsstack-968297339674-ap-southeast-2"
+            prefix = "sfs-reports/"
+            df_reports = make_df_reports(bucket, prefix)
+            grid_resp = \
+                display_ag_grid(df_reports, paginate=True, comma_cols=[],
+                                selection_mode="single", use_checkbox=True)
+            st.write(grid_resp)
+        else:
+            raise NotImplementedError
+
+        load_report_btn = st.button("Load", key="load_report_btn")
+
+        if load_report_btn:
+            with st.spinner("Loading Report ..."):
+                state["report"] = cloudpickle.load(gzip.open(fn, "rb"))
     return
 
 
@@ -1073,8 +1163,8 @@ def panel_downloads():
                 backtests_signed_url = create_presigned_url(s3_backtests_path)
 
                 st.info(textwrap.dedent(f"""
-                The forecasts file is ready [here]({forecasts_signed_url}).  
-                The backtests file is ready [here]({backtests_signed_url}).
+                Download the forecasts file [here]({forecasts_signed_url}).  
+                Download the backtests file [here]({backtests_signed_url}).
                 """))
 
                 plot_duration = time.time() - start
@@ -1406,7 +1496,7 @@ def refresh_ml_state_machine_status():
     return sfn_status, status_dict
 
 
-def file_selectbox(label, folder):
+def file_selectbox(label, folder, globs=("*.csv", "*.csv.gz")):
     """
     """
 
@@ -1414,7 +1504,7 @@ def file_selectbox(label, folder):
         raise NotImplementedError
     else:
         fns = []
-        for pat in ("*.csv", "*.csv.gz"):
+        for pat in globs:
             fns.extend(glob.glob(os.path.join(folder, pat)))
 
     fn = st.selectbox(label, fns, format_func=lambda s: os.path.basename(s))
@@ -1455,9 +1545,14 @@ if __name__ == "__main__":
 
     if "s3_sfs_export_path" not in state["report"]:
         state["report"]["sfs"]["s3_sfs_export_path"] = \
-            f's3://{state["report"]["s3_bucket"]}/sfs_exports'
+            f's3://{state["report"]["s3_bucket"]}/sfs-exports'
 
-    st.write(state["report"])
+    if "s3_sfs_reports_path" not in state["report"]:
+        state["report"]["sfs"]["s3_sfs_reports_path"] = \
+            f's3://{state["report"]["s3_bucket"]}/sfs-reports'
+
+
+    #st.write(state["report"])
 
     #
     # Sidebar
@@ -1467,21 +1562,33 @@ if __name__ == "__main__":
     - [github](https://github.com/aws-samples/simple-forecast-solution)
     """))
 
+    menu_radio_btn = \
+        st.sidebar.radio("Menu", ["Create Report", "Load Report"])
+
+    if st.sidebar.button("Save Report"):
+        save_report()
+
     #
     # Main page
     #
     st.subheader("Amazon Simple Forecast Solution")
-    st.title("Create Forecasts")
-    st.markdown("")
 
-    panel_load_data()
-
-    if st.button("Reset Form"):
-        reset_state()
-        caching.clear_cache()
-        raise RerunException(None)
+    if menu_radio_btn == "Create Report":
+        st.title("Create Report")
+        st.markdown("")
+        panel_load_data()
+    elif menu_radio_btn == "Load Report":
+        st.title("Load Report")
+        st.markdown("")
+        panel_load_report()
+    else:
+        st.stop()
 
     panel_data_health()
+
+#   if st.button("Reset Form"):
+#       state.pop("report")
+#       raise RerunException(None)
 
     panel_launch()
     panel_accuracy()
@@ -1492,3 +1599,4 @@ if __name__ == "__main__":
     panel_ml_launch()
     panel_ml_forecast_summary()
     panel_ml_visualization()
+
