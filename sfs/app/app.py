@@ -372,67 +372,6 @@ def make_mask(df, channel, family, item_id):
     return mask
 
 
-def panel_forecast_summary():
-    """
-    """
-    df_demand_cln = state.df_demand_cln
-    df_results = state.df_results
-
-    df_cln = pd.DataFrame({"category": ["short", "medium", "continuous"]})
-    df_cln = df_cln.merge(
-        df_demand_cln["category"]
-            .value_counts(normalize=True)
-            .reset_index()
-            .rename({"index": "category", "category": "frac"}, axis=1),
-        on="category", how="left"
-    )
-    df_cln = df_cln.fillna(0.0)
-    df_cln["frac"] *= 100
-    df_cln["frac"] = df_cln["frac"].astype(int)
-
-    _cols = st.beta_columns(3)
-
-    with _cols[0]:
-        st.markdown("#### Parameters")
-        st.text(f"Horiz. Length:\t{state.horiz}\n"
-                f"Frequency:\t{state.freq_out}")
-
-        st.markdown("#### Classification")
-        st.text(f"Short:\t\t{df_cln.iloc[0]['frac']} %\n"
-                f"Medium:\t\t{df_cln.iloc[1]['frac']} %\n"
-                f"Continuous:\t{df_cln.iloc[2]['frac']} %")
-
-    df_model_dist, sr_err, sr_err_naive, acc_increase = \
-        make_perf_summary(df_results)
-
-    with _cols[1]:
-        st.markdown("#### Best Models")
-        df_model_dist = df_model_dist.query("perc > 0")
-        labels = df_model_dist["model_type"].values
-        values = df_model_dist["perc"].values
-
-        fig = go.Figure(data=[go.Pie(labels=labels, values=values, hole=0.40)])
-        fig.update(layout_showlegend=False)
-        fig.update_layout(
-            margin={"t": 0, "b": 0, "r": 20, "l": 20},
-            width=200,
-            height=150,
-        )
-        fig.update_traces(textinfo="percent+label")
-        st.plotly_chart(fig)
-
-    acc = (1 - sr_err.err_mean) * 100.
-    acc_naive = (1 - sr_err_naive.err_mean) * 100.
-
-    with _cols[2]:
-        st.markdown("#### Overall Accuracy")
-        st.markdown(
-            f"<div style='font-size:36pt;font-weight:bold'>{acc:.0f}%</div>"
-            f"({acc - acc_naive:.0f}% increase vs. naive)", unsafe_allow_html=True)
-
-    return
-
-
 @st.cache
 def make_downloads(df_pred, df_results):
     """
@@ -817,7 +756,8 @@ def panel_accuracy():
                 width=200,
                 height=150,
             )
-            fig.update_traces(textinfo="percent+label", texttemplate="%{label} – %{percent:.1%f}")
+            #fig.update_traces(textinfo="percent+label", texttemplate="%{label} – %{percent:.1%f}")
+            fig.update_traces(textinfo="percent+label")
             st.plotly_chart(fig)
 
         # calc. overall accuracy (runtime)
