@@ -134,12 +134,9 @@ def lambda_handler(event, context):
         
         Amazon SFS has been successfully deployed into your AWS account.
         
-        Your Amazon SFS landing page is available here:
+        Visit the landing page below to get started:
         ‣ {landing_page_url}
         
-        You Amazon SFS dashboard is available here:
-        ‣ {dashboard_url}
-
         Sincerely,
         The Amazon SFS Team
         ‣ https://github.com/aws-samples/simple-forecast-solution
