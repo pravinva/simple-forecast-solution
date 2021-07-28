@@ -196,8 +196,8 @@ def display_ag_grid(df, auto_height=False, paginate=False,
     df : pd.DataFrame
     auto_height : bool
     pagination : bool
-    comma_cols : tuple
-        Columns to apply comma thousands separator.
+    comma_cols : tuple or list
+        Numeric columns to apply comma thousands separator.
 
     """
 
@@ -871,6 +871,8 @@ def panel_visualization():
     if df is None or df_results is None or df_preds is None:
         return
 
+    freq = state.report["sfs"]["freq"]
+    horiz = state.report["sfs"]["horiz"]
     start = time.time()
 
     df_top = df.groupby(["channel", "family", "item_id"], as_index=False) \
@@ -892,10 +894,8 @@ def panel_visualization():
 
             with _cols[0]:
                 channel_choice = st.selectbox("Channel", channel_vals, index=channel_index)
-
             with _cols[1]:
                 family_choice = st.selectbox("Family", family_vals, index=family_index)
-
             with _cols[2]:
                 item_id_choice = st.selectbox("Item ID", item_id_vals, index=item_id_index)
 
@@ -924,13 +924,28 @@ def panel_visualization():
 
             fig = go.Figure()
             fig.add_trace(go.Scatter(
-                x=y_ts, y=y, mode='lines+markers', name="actual",
-                marker=dict(size=4)
+                x=y_ts, y=y, mode='lines', name="actual",
+                fill="tozeroy", marker=dict(size=4)
             ))
             fig.add_trace(go.Scatter(
-                x=yp_ts, y=yp, mode='lines+markers', name="forecast", line_dash="dot",
-                marker=dict(size=4)
+                x=yp_ts, y=yp, mode='lines', name="forecast",
+                fill="tozeroy", marker=dict(size=4)
             ))
+
+            # plot 
+            dd = df_results[results_mask].query("rank == 1").iloc[0]
+
+            df_backtest = \
+                pd.DataFrame({"yp": np.hstack(dd['yp_cv'])},
+                             index=pd.DatetimeIndex(np.hstack(dd["ts_cv"]))) \
+                  .sort_index() \
+                  .resample(FREQ_MAP_PD[freq]) \
+                  .apply(np.nanmean)
+
+            fig.add_trace(go.Scatter(x=df_backtest.index, y=df_backtest.yp, mode="lines",
+                name="backtest", line_dash="dot"))
+                
+
     #       fig.update_layout(
     #           xaxis={
     #               "showgrid": True,
@@ -946,6 +961,24 @@ def panel_visualization():
                 height=250,
                 legend={"orientation": "h", "yanchor": "bottom", "y": 1.0, "xanchor":"left", "x": 0.0}
             )
+            fig.update_xaxes(
+                rangeslider_visible=True,
+#               rangeselector=dict(
+#                   buttons=list([
+#                       dict(count=1, label="1m", step="month", stepmode="backward"),
+#                       dict(count=6, label="6m", step="month", stepmode="backward"),
+#                       dict(count=1, label="YTD", step="year", stepmode="todate"),
+#                       dict(count=1, label="1y", step="year", stepmode="backward"),
+#                       dict(step="all")
+#                   ])
+#               )
+            )
+
+            initial_range = pd.date_range(end=yp_ts.max(), periods=horiz*8, freq=freq)
+            initial_range = [max(initial_range[0], y_ts.min()), initial_range[-1]]
+
+            fig["layout"]["xaxis"].update(range=initial_range)
+
             st.plotly_chart(fig, use_container_width=True)
 
         plot_duration = time.time() - start
@@ -983,7 +1016,7 @@ def panel_ml_launch():
 
     st.header("ML Forecasting")
 
-    with st.beta_expander("Launch"):
+    with st.beta_expander("🚀 Launch"):
         with st.form("ml_form"):
             _cols = st.beta_columns(3)
 
