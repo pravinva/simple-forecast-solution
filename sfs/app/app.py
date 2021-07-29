@@ -1674,7 +1674,7 @@ if __name__ == "__main__":
     #
     #st.subheader("Amazon Simple Forecast Accelerator")
 
-    panel_create_report(expanded=False)
+    panel_create_report(expanded=True)
     panel_load_report(expanded=False)
 
     panel_data_health()
