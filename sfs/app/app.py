@@ -277,33 +277,32 @@ def create_presigned_url(s3_path, expiration=3600):
     return response
 
 
-def make_df_backtests(df_results):
+def make_df_backtests(df_results, parallel=False):
     """Expand df_results to a "long" dataframe with the columns:
     channel, family, item_id, timestamp, actual, backtest.
 
     """
 
     def _expand(dd):
-        ts = np.hstack(dd["ts_cv"].apply(np.hstack))    
+        ts = np.hstack(dd["ts_cv"].apply(np.hstack))
         ys = np.hstack(dd["y_cv"].apply(np.hstack))
         yp = np.hstack(dd["yp_cv"].apply(np.hstack))
-              
         df = pd.DataFrame({"timestamp": ts, "demand": ys, "backtest": yp})
-        df.insert(0, "channel", dd["channel"].iloc[0])
-        df.insert(1, "family", dd["family"].iloc[0])
-        df.insert(2, "item_id", dd["item_id"].iloc[0])
-        df["timestamp"] = pd.DatetimeIndex(df["timestamp"]).strftime("%Y-%m-%d")
-            
+
         return df
 
-    df_expanded = \
-        df_results.groupby(["channel", "family", "item_id"], as_index=False, sort=False) \
-                  .apply(_expand) \
-                  .reset_index(drop=True) \
-                  .sort_values(by=["channel", "family", "item_id", "timestamp"]) \
-                  .reset_index(drop=True)
+    groups = df_results.query("rank == 1") \
+                       .groupby(["channel", "family", "item_id"],
+                                as_index=True, sort=False)
+    
+    if parallel:
+        df_backtests = groups.parallel_apply(_expand)
+    else:
+        df_backtests = groups.apply(_expand)
 
-    return df_expanded
+    df_backtests["timestamp"] = pd.DatetimeIndex(df_backtests["timestamp"])
+
+    return df_backtests.reset_index(["channel", "family", "item_id"])
 
 
 def save_report():
@@ -788,6 +787,7 @@ def panel_accuracy():
     return
 
 
+@st.cache()
 def make_df_top(df, df_results, groupby_cols, dt_start, dt_stop, cperc_thresh):
     """
     """
@@ -817,35 +817,32 @@ def make_df_top(df, df_results, groupby_cols, dt_start, dt_stop, cperc_thresh):
 
     # calculate per-group demand %
     df_grp_demand = \
-        df2 \
-        | px.groupby(groupby_cols, as_index=False, sort=False) \
-        | px.agg({"demand": sum}) \
-        | px.assign(perc=px["demand"] / total_demand * 100)
+        df2.groupby(groupby_cols, as_index=False, sort=False) \
+           .agg({"demand": sum})
+    df_grp_demand["perc"] = df_grp_demand["demand"] / total_demand * 100
 
     # get the best models for each group
     df_grp_metrics = \
         df_results.query("rank == 1") \
-        | px.groupby(groupby_cols, as_index=False, sort=False) \
-        | px.apply(lambda dd: calc_period_metrics(dd, dt_start, dt_stop)) \
-        | p(pd.DataFrame) \
-        | px.rename({None: "smape"}, axis=1) \
-        | px.reset_index() \
-        | px.assign(accuracy=100 * (1-px["smape"])) \
-        | px.drop(["index", "smape"], axis=1)
+            .groupby(groupby_cols, as_index=False, sort=False) \
+            .apply(lambda dd: calc_period_metrics(dd, dt_start, dt_stop)) \
+            .pipe(pd.DataFrame) \
+            .rename({None: "smape"}, axis=1) \
+            .reset_index()
+    df_grp_metrics["accuracy"] = 100 * (1-df_grp_metrics["smape"])
+    df_grp_metrics.drop(["index", "smape"], axis=1, inplace=True)
 
     # combine, sort, and display
     df_grp = df_grp_demand \
-        | px.merge(df_grp_metrics, on=groupby_cols, how="left") \
-        | px.sort_values(by="demand", ascending=False) \
-        | px.assign(cperc=px["perc"].cumsum()) \
-        | px.query(f"cperc <= {cperc_thresh}") \
-        | px.assign(perc=px["perc"]) \
-        | px.rename({"perc": "% total demand", "accuracy": "% accuracy"}, axis=1) \
-        | px.drop("cperc", axis=1)
+        .merge(df_grp_metrics, on=groupby_cols, how="left") \
+        .sort_values(by="demand", ascending=False)
+    df_grp["cperc"] = df_grp["perc"].cumsum()
+    df_grp = df_grp.query(f"cperc <= {cperc_thresh}")
+    df_grp.rename({"perc": "% total demand", "accuracy": "% accuracy"}, axis=1, inplace=True)
+    df_grp.drop("cperc", axis=1, inplace=True)
 
     # calc. summary row
-    df_grp_summary = df_grp \
-        | px.agg({"demand": sum, "% accuracy": "mean"})
+    df_grp_summary = df_grp.agg({"demand": sum, "% accuracy": "mean"})
 
     df_grp_summary["% total demand"] = np.round(100 * df_grp_summary["demand"] / total_demand, 1)
     df_grp_summary = pd.DataFrame(df_grp_summary).T[["demand", "% total demand", "% accuracy"]]
@@ -919,6 +916,8 @@ def panel_top_performers():
 
         if st.button("Export"):
             with st.spinner("Exporting **Top Performers** ..."):
+                start = time.time()
+
                 # write the dataframe to s3
                 now_str = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
                 basename = os.path.basename(state["report"]["data"]["path"])
@@ -931,7 +930,9 @@ def panel_top_performers():
                 signed_url = create_presigned_url(s3_path)
 
                 st.info(textwrap.dedent(f"""
-                Your export is ready [here]({signed_url})."""))
+                Download the top performers file [here]({signed_url})  
+                `(completed in {format_timespan(time.time() - start)})`
+                """))
 
     return
 
@@ -1019,11 +1020,11 @@ def panel_visualization():
             fig = go.Figure()
             fig.add_trace(go.Scatter(
                 x=y_ts, y=y, mode='lines', name="actual",
-                fill="tozeroy", marker=dict(size=4)
+                fill="tozeroy", line={"width": 3.5}, marker=dict(size=4)
             ))
             fig.add_trace(go.Scatter(
                 x=yp_ts, y=yp, mode='lines', name="forecast",
-                fill="tozeroy", marker=dict(size=4)
+                fill="tozeroy", line={"width": 3.5}, marker=dict(size=4)
             ))
 
             # plot 
@@ -1037,7 +1038,7 @@ def panel_visualization():
                   .apply(np.nanmean)
 
             fig.add_trace(go.Scatter(x=df_backtest.index, y=df_backtest.yp, mode="lines",
-                name="backtest", line_dash="dot"))
+                name="backtest", line_dash="dot", line_color="black"))
                 
 
     #       fig.update_layout(
@@ -1092,36 +1093,63 @@ def panel_downloads():
     if df is None or df_results is None or df_preds is None:
         return
 
-    with st.beta_expander("⬇️  Downloads"):
+    with st.beta_expander("⬇️  Downloads", expanded=True):
         export_forecasts_btn = \
             st.button("Export Forecasts", key="sfs_export_forecast_btn")
 
         if export_forecasts_btn:
             start = time.time()
+            s3_sfs_export_path = state["report"]["sfs"]["s3_sfs_export_path"]
 
             with st.spinner("Exporting Forecasts ..."):
                 now_str = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
                 basename = os.path.basename(state["report"]["data"]["path"])
-                s3_sfs_export_path = state["report"]["sfs"]["s3_sfs_export_path"]
                 s3_forecasts_path = f'{s3_sfs_export_path}/{basename}_{now_str}_sfs-forecast.csv.gz'
-
                 wr.s3.to_csv(df_preds, s3_forecasts_path, compression="gzip", index=False)
-
                 forecasts_signed_url = create_presigned_url(s3_forecasts_path)
 
-                s3_backtests_path = f'{s3_sfs_export_path}/{basename}_{now_str}_sfs-backtests.csv.gz'
+            st.info(textwrap.dedent(f"""
+            Download the forecasts file [here]({forecasts_signed_url})  
+            `(completed in {format_timespan(time.time()-start)})`.  
+            """))
 
+            with st.spinner("Exporting Backtests ..."):
+                #backtests_path = os.path.join(ST_STATIC_PATH, f"{basename}-sfs-backtests.csv.gz")
                 df_backtests = make_df_backtests(df_results)
+                s3_backtests_path = f'{s3_sfs_export_path}/{basename}_{now_str}_sfs-backtests.csv.gz'
                 wr.s3.to_csv(df_backtests, s3_backtests_path, compression="gzip", index=False)
                 backtests_signed_url = create_presigned_url(s3_backtests_path)
 
-                st.info(textwrap.dedent(f"""
-                Download the forecasts file [here]({forecasts_signed_url}).  
-                Download the backtests file [here]({backtests_signed_url}).
-                """))
+            st.info(textwrap.dedent(f"""
+            Download the backtests file [here]({backtests_signed_url})  
+            `(completed in {format_timespan(time.time()-start)})`.
+            """))
 
-                plot_duration = time.time() - start
-                st.text(f"(completed in {format_timespan(plot_duration)})")
+#               df_backtests.to_csv(backtests_path, compression="gzip", index=False)
+#                   st.info(textwrap.dedent(f"""
+#                   Download the forecasts file [here]({forecasts_signed_url}).  
+
+#           st.write(forecasts_path)
+#           st.write(backtests_path)
+#               if False:
+#                   now_str = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+#                   basename = os.path.basename(state["report"]["data"]["path"])
+#                   s3_sfs_export_path = state["report"]["sfs"]["s3_sfs_export_path"]
+#                   s3_forecasts_path = f'{s3_sfs_export_path}/{basename}_{now_str}_sfs-forecast.csv.gz'
+
+#                   wr.s3.to_csv(df_preds, s3_forecasts_path, compression="gzip", index=False)
+
+#                   forecasts_signed_url = create_presigned_url(s3_forecasts_path)
+
+#                   s3_backtests_path = f'{s3_sfs_export_path}/{basename}_{now_str}_sfs-backtests.csv.gz'
+
+#                   df_backtests = make_df_backtests(df_results)
+#                   wr.s3.to_csv(df_backtests, s3_backtests_path, compression="gzip", index=False)
+#                   backtests_signed_url = create_presigned_url(s3_backtests_path)
+
+
+#                   plot_duration = time.time() - start
+#                   st.text(f"(completed in {format_timespan(plot_duration)})")
 
     return
 
@@ -1153,7 +1181,7 @@ def panel_ml_launch():
     if df is None:
         return
 
-    st.header("ML Forecasting")
+    st.header(":construction: ML Forecasting :construction:")
 
     with st.beta_expander("🚀 Launch"):
         with st.form("ml_form"):
@@ -1350,7 +1378,7 @@ def panel_ml_visualization():
             fig = go.Figure()
             fig.add_trace(go.Scatter(
                 x=y_ts, y=y, mode='lines+markers', name="actual",
-                fill="tozeroy", marker=dict(size=4)
+                fill="tozeroy", line={"width":3}, marker=dict(size=4)
             ))
             fig.add_trace(go.Scatter(
                 x=yp_ts, y=yp, mode='lines+markers', name="forecast",
