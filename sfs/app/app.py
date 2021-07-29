@@ -692,6 +692,7 @@ def panel_launch():
 
                 # generate the results and predictions as dataframes
                 df_results, df_preds = process_forecasts(wait_for)
+                df_results = df_results[df_results["rank"] == 1]
 
                 # generate the demand classifcation info
                 df_demand_cln = make_demand_classification(df, freq_in)
@@ -701,9 +702,6 @@ def panel_launch():
             state.report["sfs"]["df_preds"] = df_preds
             state.report["sfs"]["df_demand_cln"] = df_demand_cln
             state.report["sfs"]["job_duration"] = time.time() - start
-
-            #import cloudpickle
-            #cloudpickle.dump(df_results, open("/tmp/df_results.pkl", "wb"))
 
         job_duration = state.report["sfs"].get("job_duration", None)
 
@@ -752,8 +750,18 @@ def panel_accuracy():
                     f"Medium:\t\t{df_cln.iloc[1]['frac']} %\n"
                     f"Continuous:\t{df_cln.iloc[2]['frac']} %")
 
-        # generate the performance summary (runtime)
-        df_model_dist, best_err, naive_err = make_perf_summary(df_results)
+
+        if "df_model_dist" not in state["report"]["sfs"]:
+            # generate the performance summary (runtime)
+            df_model_dist, best_err, naive_err = make_perf_summary(df_results)
+
+            state["report"]["df_model_dist"] = df_model_dist
+            state["report"]["best_err"] = best_err
+            state["report"]["naive_err"] = naive_err
+        else:
+            df_model_dist = state["report"]["df_model_dist"]
+            best_err = state["report"]["best_err"]
+            naive_err = state["report"]["naive_err"]
 
         with _cols[1]:
             st.markdown("#### Best Models")
@@ -772,9 +780,6 @@ def panel_accuracy():
             fig.update_traces(textinfo="percent+label")
             st.plotly_chart(fig)
 
-        # calc. overall accuracy (runtime)
-        df_model_dist, best_err, naive_err = make_perf_summary(df_results)
-
         acc = (1 - best_err.err_mean) * 100.
         acc_naive = (1 - naive_err.err_mean) * 100.
 
@@ -782,7 +787,7 @@ def panel_accuracy():
             st.markdown("#### Overall Accuracy")
             st.markdown(
                 f"<div style='font-size:36pt;font-weight:bold'>{acc:.0f}%</div>"
-                f"({acc - acc_naive:.0f}% increase vs. naive)", unsafe_allow_html=True)
+                f"({np.clip(acc - acc_naive, 0, None):.0f}% increase vs. naive)", unsafe_allow_html=True)
 
     return
 
@@ -937,24 +942,6 @@ def panel_top_performers():
     return
 
 
-def panel_popular_items():
-    """
-    """
-
-    df = state.report["data"].get("df", None)
-
-    if df is None:
-        return
-
-    with st.beta_expander("Popular Items", expanded=True):
-        st.write("#### Placeholder")
-        st.write("TODO: AgGrid here")
-
-        return
-
-    return
-
-
 def panel_visualization():
     """
     """
@@ -1007,9 +994,7 @@ def panel_visualization():
         df_plot = df_preds[pred_mask]
 
         if len(df_plot) > 0:
-
             # display the line chart
-            #fig = pex.line(df_plot, x="timestamp", y="demand", color="type")
 
             y = df_plot.query("type == 'actual'")["demand"]
             y_ts = df_plot.query("type == 'actual'")["timestamp"]
