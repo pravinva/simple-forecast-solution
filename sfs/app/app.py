@@ -305,11 +305,11 @@ def make_df_backtests(df_results, parallel=False):
     return df_backtests.reset_index(["channel", "family", "item_id"])
 
 
-def save_report():
+def save_report(report_fn):
     """
     """
 
-    if "report" not in state:
+    if "report" not in state or "name" not in state["report"]:
         return
 
     if "path" not in state["report"]["data"]:
@@ -318,17 +318,18 @@ def save_report():
         """))
         return
 
-    with st.spinner("Saving Report ..."):
+    start = time.time()
+
+    with st.spinner(":hourglass_flowing_sand: Saving Report ..."):
         now_str = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
-        basename = os.path.basename(state["report"]["data"]["path"])
-        local_path = f'/tmp/{basename}_{now_str}_sfs-report.pkl.gz'
+        local_path = f'/tmp/{report_fn}'
 
         # save the report locally
         cloudpickle.dump(state["report"], gzip.open(local_path, "wb"))
 
         # upload the report to s3
         s3_path = \
-            f'{state["report"]["sfs"]["s3_sfs_reports_path"]}/{os.path.basename(local_path)}'
+            f'{state["report"]["sfs"]["s3_sfs_reports_path"]}/{report_fn}'
 
         parsed_url = urlparse(s3_path, allow_fragments=False)
         bucket = parsed_url.netloc
@@ -339,12 +340,14 @@ def save_report():
         try:
             response = s3_client.upload_file(local_path, bucket, key)
             signed_url = create_presigned_url(s3_path)
-
-            st.sidebar.info(textwrap.dedent(f"""
+            st.info(textwrap.dedent(f"""
             The report can be downloaded [here]({signed_url}).
             """))
         except ClientError as e:
             logging.error(e)
+
+    st.text(f"(completed in {format_timespan(time.time() - start)})")
+
 
     return
 
@@ -412,71 +415,86 @@ def panel_create_report(expanded=True):
 
         return df
 
+    st.markdown("## Create Report")
+
     with st.beta_expander("⬆️  Load + Validate Data", expanded=expanded):
+        now_str = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+
+        default_name = state["report"].get("name", None)
+        file_path = state["report"]["data"].get("path", None)
+        freq = state["report"]["data"].get("freq", None)
+
+        if default_name is None:
+            default_name = f"SfsReport_{now_str}"
+            report_name = st.text_input("Report Name", value=default_name)
+        else:
+            report_name = state["report"]["name"]
+            st.text(f"Report Name: {report_name}")
+
         _cols = st.beta_columns([3,1])
 
         with _cols[0]:
-            fn = file_selectbox("File", args.local_dir)
-            btn_refresh_files = st.button("Refresh Files")
+            if file_path is None:
+                fn = file_selectbox("File", args.local_dir)
+                btn_refresh_files = st.button("Refresh Files")
+            else:
+                st.text(f"File: {file_path}")
 
         with _cols[1]:
-            freq = st.selectbox("Frequency", list(FREQ_MAP.values()),
-                    format_func=lambda s: FREQ_MAP_LONG[s])
-            btn_validate = st.button("Validate")
+            if freq is None:
+                freq = st.selectbox("Frequency", list(FREQ_MAP.values()),
+                        format_func=lambda s: FREQ_MAP_LONG[s])
+                btn_validate = st.button("Validate")
 
-        if fn is None:
-            st.warning(textwrap.dedent("""
-            **Warning**
+                if btn_validate:
+                    start = time.time()
 
-            No files were detected.
+                    if fn is None:
+                        st.error(textwrap.dedent("""
+                        **Error**
 
-            1. Upload your file(s).
-            2. Click the **Refresh files** button.
-            ⠀
-            #### 
-            """))
+                        No files were selected.
 
-        if btn_validate:
-            start = time.time()
+                        1. Upload your file(s).
+                        2. Click the **Refresh Files** button.
+                        3. Select the file from the dropdown box.
+                        4. Select the **Frequency**.
+                        5. Click the **Validate** button.
 
-            if fn is None:
-                st.error(textwrap.dedent("""
-                **Error**
+                        ####
+                        """))
+                        st.stop()
 
-                No files were selected.
+                    if report_name == "":
+                        st.error(textwrap.dedent("""
+                        **Error**: Please use a non-empty report name.
+                        """))
+                        st.stop()
 
-                1. Upload your file(s).
-                2. Click the **Refresh Files** button.
-                3. Select the file from the dropdown box.
-                4. Select the **Frequency**.
-                5. Click the **Validate** button.
+                    # temporarily load the file for validation and store it in state
+                    # iff the data is valid
+                    with st.spinner(":hourglass_flowing_sand: Validating file ..."):
+                        df, msgs, is_valid_file = validate(_load_data(fn))#.drop(["timestamp", "channel"], axis=1))
 
-                ####
-                """))
-                st.stop()
+                    if is_valid_file:
+                        with st.spinner(":hourglass_flowing_sand: Processing file ..."):
+                            state.report["name"] = report_name
+                            state.report["data"]["path"] = fn
+                            state.report["data"]["sz_bytes"] = os.path.getsize(fn)
+                            state.report["data"]["freq"] = freq
+                            state.report["data"]["df"] = \
+                                load_data(df, impute_freq=state.report["data"]["freq"])
 
-            # temporarily load the file for validation and store it in state
-            # iff the data is valid
-            with st.spinner(":hourglass_flowing_sand: Validating file ..."):
-                df, msgs, is_valid_file = validate(_load_data(fn))#.drop(["timestamp", "channel"], axis=1))
+                            # clear any existing data health check results, this forces
+                            # a rechecking of data health
+                            state.report["data"]["df_health"] = None
 
-            if is_valid_file:
-                with st.spinner(":hourglass_flowing_sand: Processing file ..."):
-                    state.report["data"]["path"] = fn
-                    state.report["data"]["sz_bytes"] = os.path.getsize(fn)
-                    state.report["data"]["freq"] = freq
-                    state.report["data"]["df"] = \
-                        load_data(df, impute_freq=state.report["data"]["freq"])
-
-                    # clear any existing data health check results, this forces
-                    # a rechecking of data health
-                    state.report["data"]["df_health"] = None
-
-                    st.text(f"(completed in {format_timespan(time.time() - start)})")
+                            st.text(f"(completed in {format_timespan(time.time() - start)})")
+                    else:
+                        err_bullets = "\n".join("- " + s for s in msgs["errors"])
+                        st.error(f"**Validation failed**\n\n{err_bullets}")
             else:
-                err_bullets = "\n".join("- " + s for s in msgs["errors"])
-                st.error(f"**Validation failed**\n\n{err_bullets}")
-
+                st.text(f"Freq: {freq}")
 
     return
 
@@ -492,6 +510,8 @@ def panel_load_report(expanded=True):
             return "☁️ S3"
 
     s3 = boto3.client("s3")
+
+    st.markdown("## Load Report")
 
     with st.beta_expander("⬆️ Load Report", expanded=expanded):
         report_source = st.radio("Source", ["local"], format_func=format_func)
@@ -1547,18 +1567,7 @@ if __name__ == "__main__":
     - [github](https://github.com/aws-samples/simple-forecast-solution)
     """))
 
-    st.sidebar.write("###")
-
-    _cols = st.sidebar.beta_columns(2)
-
-    with _cols[0]:
-        save_report_btn = st.button("💾 Save Report")
-
-    with _cols[1]:
-        clear_report_btn = st.button("❌ Clear Report")
-
-    if save_report_btn:
-        save_report()
+    clear_report_btn = st.sidebar.button("❌ Clear Report")
 
     if clear_report_btn:
         state.pop("report")
@@ -1592,12 +1601,7 @@ if __name__ == "__main__":
     #
     st.subheader("Amazon Simple Forecast Accelerator")
 
-    st.markdown("## Load Report")
-    st.markdown("")
     panel_load_report(expanded=False)
-
-    st.markdown("## Create Report")
-    st.markdown("")
     panel_create_report(expanded=True)
 
     panel_data_health()
@@ -1607,6 +1611,23 @@ if __name__ == "__main__":
     panel_top_performers()
     panel_visualization()
     panel_downloads()
+
+    def panel_save_report():
+        if "data" not in state["report"] or "path" not in state["report"]["data"] or \
+           "df" not in state["report"]["data"]:
+           return
+        st.markdown("## Save Report")
+
+        with st.beta_expander("💾 Save Report", expanded=True):
+            default_name = f'{state.report["name"]}.report.pkl.gz'
+            report_fn = st.text_input("File name", value=default_name,
+                help="Please note that the report file name needs to have a `.pkl.gz` file extension.")
+            save_btn = st.button("Save")
+
+            if save_btn:
+                save_report(report_fn)
+
+    panel_save_report()
 
     panel_ml_launch()
     panel_ml_forecast_summary()
