@@ -88,7 +88,7 @@ aws lambda invoke --function-name {sns_lambda_function} \
     /dev/stdout
 
 # Update the url in the landing page
-sed -i 's|INSERT_URL_HERE|'$DASHBOARD_URL'|' /home/ec2-user/SageMaker/SFS_Landing_Page.ipynb
+sed -i 's|INSERT_URL_HERE|https:\/\/'$DASHBOARD_URL'|' /home/ec2-user/SageMaker/SFS_Landing_Page.ipynb
 mkdir -p /home/ec2-user/SageMaker/reports/
 
 #
@@ -306,6 +306,7 @@ class SfsStack(cdk.Stack):
             role_arn=sm_role.role_arn,
             instance_type=instance_type.value_as_string,
             notebook_instance_name=notebook_instance_name,
+            volume_size_in_gb=16,
             lifecycle_config_name=lcc.attr_notebook_instance_lifecycle_config_name)
 
         #
