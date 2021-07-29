@@ -16,7 +16,6 @@
 https://github.com/aws-samples/simple-forecat-solution/
 
 USAGE:
-    streamlit run ./app.py
     streamlit run -- ./app.py --local-dir LOCAL_DIR [--landing-page-url URL]
                                  
 '''
@@ -406,6 +405,7 @@ def _success(s):
 
 def _write(s):
     st.write(textwrap.dedent(s))
+
 
 def panel_create_report(expanded=True):
     """Display the 'Load Data' panel.

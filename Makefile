@@ -17,8 +17,9 @@ INSTANCE_TYPE:=ml.t2.medium
 deploy: SfsStack
 
 destroy:
-	cd sm-bootstrap ; cdk destroy --all
+	cd cdk ; cdk destroy --all
 
 SfsStack:
-	cd sm-bootstrap ; \
-		cdk deploy --all --parameters $@:emailAddress=${EMAIL} --parameters $@:instanceType=${INSTANCE_TYPE}
+	cd cdk ; \
+		cdk deploy --all --parameters $@:emailAddress=${EMAIL} \
+		--parameters $@:instanceType=${INSTANCE_TYPE}
