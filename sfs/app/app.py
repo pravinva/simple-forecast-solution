@@ -433,10 +433,10 @@ def panel_create_report(expanded=True):
     st.markdown("## Create Report")
 
     with st.beta_expander("⬆️  Load + Validate Data", expanded=expanded):
-        st.write("""Step 1 – Create a new forecast report by selecting an uploaded
+        st.write(f"""Step 1 – Create a new forecast report by selecting an uploaded
         file containing the demand history for your use-case. You must also specify
         the frequency of the demand (e.g. _Daily_, _Weekly_, or _Monthly_). Demand
-        history files are uploaded using the [SageMaker Notebook interface]()""")
+        history files are uploaded using the [SageMaker Notebook interface]({state["landing_page_url"]})""")
 
         now_str = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
 
@@ -528,9 +528,9 @@ def panel_load_report(expanded=True):
 
     st.markdown("## Load Report")
     with st.beta_expander("📂 Load Report", expanded=expanded):
-        st.write("""Optional – Alternatively, you can load a previously-generated
+        st.write(f"""Optional – Alternatively, you can load a previously-generated
         report. Report files must have the `.pkl.gz` file extension and can be uploaded
-        using the [SageMaker Notebook interface]().""")
+        using the [SageMaker Notebook interface]({state["landing_page_url"]}).""")
 
         report_source = st.radio("Source", ["local"], format_func=format_func)
 
