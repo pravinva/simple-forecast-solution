@@ -17,7 +17,7 @@ https://github.com/aws-samples/simple-forecat-solution/
 
 USAGE:
     streamlit run ./app.py
-    streamlit run -- ./app.py --local-dir LOCAL_DIR
+    streamlit run -- ./app.py --local-dir LOCAL_DIR [--landing-page-url URL]
                                  
 '''
 import os
@@ -527,7 +527,7 @@ def panel_load_report(expanded=True):
     s3 = boto3.client("s3")
 
     st.markdown("## Load Report")
-    with st.beta_expander("⬆️ Load Report", expanded=expanded):
+    with st.beta_expander("📂 Load Report", expanded=expanded):
         st.write("""Optional – Alternatively, you can load a previously-generated
         report. Report files must have the `.pkl.gz` file extension and can be uploaded
         using the [SageMaker Notebook interface]().""")
@@ -1618,9 +1618,17 @@ if __name__ == "__main__":
         help="ARN/name of the lambdamap function",
         default="SfsLambdaMapFunction")
 
+    parser.add_argument("--landing-page-url", type=str,
+        help="URL of the SFS landing page", default="#")
+
+
     args = parser.parse_args()
 
     assert(os.path.exists(os.path.expanduser(args.local_dir)))
+
+    landing_page_url = "https://" + re.sub(r"^(https*://)", "", args.landing_page_url)
+
+    state["landing_page_url"] = landing_page_url
 
     #st.set_page_config(layout="wide")
 

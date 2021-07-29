@@ -107,7 +107,7 @@ git clone https://github.com/aws-samples/simple-forecast-solution.git
 cd ./simple-forecast-solution/
 pip install -q -e .
 
-nohup streamlit run -- ./sfs/app/app.py --local-dir /home/ec2-user/SageMaker/ &
+nohup streamlit run -- ./sfs/app/app.py --local-dir /home/ec2-user/SageMaker/ --landing-page-url $LANDING_PAGE_URL &
 """
 
 # This is run *once* ever, upon the *creation* of the notebook
