@@ -88,7 +88,7 @@ aws lambda invoke --function-name {sns_lambda_function} \
     /dev/stdout
 
 # Update the url in the landing page
-sed -i 's|INSERT_URL_HERE|'$LANDING_PAGE_URL'|' /home/ec2-user/SageMaker/SFS_Landing_Page.ipynb
+sed -i 's|INSERT_URL_HERE|'$DASHBOARD_URL'|' /home/ec2-user/SageMaker/SFS_Landing_Page.ipynb
 mkdir -p /home/ec2-user/SageMaker/reports/
 
 #
@@ -293,7 +293,8 @@ class SfsStack(cdk.Stack):
                 iam.ManagedPolicy.from_aws_managed_policy_name("AWSLambda_FullAccess"),
                 iam.ManagedPolicy.from_aws_managed_policy_name("EC2InstanceProfileForImageBuilderECRContainerBuilds"),
                 iam.ManagedPolicy.from_aws_managed_policy_name("IAMFullAccess"),
-                iam.ManagedPolicy.from_aws_managed_policy_name("AmazonSSMReadOnlyAccess")
+                iam.ManagedPolicy.from_aws_managed_policy_name("AmazonSSMReadOnlyAccess"),
+                iam.ManagedPolicy.from_aws_managed_policy_name("AmazonS3FullAccess")
             ])
 
         #

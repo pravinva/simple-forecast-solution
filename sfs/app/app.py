@@ -502,7 +502,7 @@ def panel_load_report():
 
         with _cols[0]:
             if report_source == "local":
-                fn = file_selectbox("File", os.path.join(args.local_dir, "reports"),
+                fn = file_selectbox("File", os.path.join(args.local_dir),
                                     globs=("*.pkl.gz",)) 
             elif report_source == "s3":
                 # list the reports in the s3 bucket
