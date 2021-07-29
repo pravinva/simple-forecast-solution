@@ -105,6 +105,7 @@ cd ./lambdamap/
 pip install -q -e .
 
 git clone https://github.com/aws-samples/simple-forecast-solution.git
+git checkout develop
 cd ./simple-forecast-solution/
 pip install -q -e .
 
@@ -125,6 +126,7 @@ source /home/ec2-user/anaconda3/bin/activate sfs
 
 # Install the dashboard
 git clone https://github.com/aws-samples/simple-forecast-solution.git
+git checkout develop
 cd ./simple-forecast-solution
 #pip install -q -e .
 
