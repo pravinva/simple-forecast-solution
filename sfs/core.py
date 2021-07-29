@@ -606,7 +606,7 @@ def make_perf_summary(df_results):
     best_err = pd.Series({"err_mean": err_mean,
                           "err_median": err_median,
                           "err_std": err_std })
-    
+
     return df_model_dist, best_err, naive_err
 
 
@@ -687,15 +687,13 @@ def process_forecasts(wait_for):
     df_preds.index.name = "timestamp"
     df_preds.reset_index(inplace=True)
 
-    '''
-    # analysis dataframes
-    df_demand_cln = \
-        make_demand_classification(df, freq)
+    # generate performance summary
+    df_model_dist, best_err, naive_err = make_perf_summary(df_results)
 
-    df_perf = make_perf_summary(df_results)
-    '''
+    # keep only the best model results
+    df_results = df_results[df_results["rank"] == 1]
 
-    return df_results, df_preds
+    return df_results, df_preds, df_model_dist, best_err, naive_err
 
 
 #

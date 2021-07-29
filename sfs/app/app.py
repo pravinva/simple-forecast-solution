@@ -393,7 +393,7 @@ def make_downloads(df_pred, df_results):
     return pred_fn, results_fn
 
 
-def panel_load_data():
+def panel_create_report(expanded=True):
     """Display the 'Load Data' panel.
 
     """
@@ -412,7 +412,7 @@ def panel_load_data():
 
         return df
 
-    with st.beta_expander("☑️ Validate Data", expanded=True):
+    with st.beta_expander("⬆️  Load + Validate Data", expanded=expanded):
         _cols = st.beta_columns([3,1])
 
         with _cols[0]:
@@ -457,12 +457,11 @@ def panel_load_data():
 
             # temporarily load the file for validation and store it in state
             # iff the data is valid
-            with st.spinner("Validating file ..."):
-                #df, msgs, is_valid_file = validate(_load_data(fn))
+            with st.spinner(":hourglass_flowing_sand: Validating file ..."):
                 df, msgs, is_valid_file = validate(_load_data(fn))#.drop(["timestamp", "channel"], axis=1))
 
             if is_valid_file:
-                with st.spinner("Processing file ..."):
+                with st.spinner(":hourglass_flowing_sand: Processing file ..."):
                     state.report["data"]["path"] = fn
                     state.report["data"]["sz_bytes"] = os.path.getsize(fn)
                     state.report["data"]["freq"] = freq
@@ -482,7 +481,7 @@ def panel_load_data():
     return
 
 
-def panel_load_report():
+def panel_load_report(expanded=True):
     """
     """
 
@@ -494,7 +493,7 @@ def panel_load_report():
 
     s3 = boto3.client("s3")
 
-    with st.beta_expander("⬆️ Load Report", expanded=True):
+    with st.beta_expander("⬆️ Load Report", expanded=expanded):
         report_source = st.radio("Source", ["local"], format_func=format_func)
 
         _cols = st.beta_columns([3,1])
@@ -517,11 +516,15 @@ def panel_load_report():
 
         with _cols[1]:
             st.write("##")
-            st.button("🔄", key="refresh_report_files_btn")
+            st.button("Refresh Files", key="refresh_report_files_btn")
 
         if load_report_btn:
-            with st.spinner("Loading Report ..."):
+            start = time.time()
+            with st.spinner(":hourglass_flowing_sand: Loading Report ..."):
                 state["report"] = cloudpickle.load(gzip.open(fn, "rb"))
+            st.text(f"(completed in {format_timespan(time.time() - start)})")
+            state["prev_state"] = "report_loaded"
+
     return
 
 
@@ -652,7 +655,7 @@ def panel_launch():
                             format_func=lambda s: FREQ_MAP_LONG[s])
 
                 with _cols[2]:
-                    backend = st.selectbox("Compute Backend", ["lambdamap", "local"], 0, _format_func)
+                    backend = st.selectbox("Compute Backend", ["lambdamap"], 0, _format_func)
 
                 btn_launch = st.form_submit_button("Launch")
 
@@ -687,12 +690,12 @@ def panel_launch():
 
             display_progress(wait_for, "🔥 Generating forecasts")
 
-            with st.spinner("Processing results ..."):
+            with st.spinner(":hourglass_flowing_sand: Calculating results ..."):
                 raw_results = [f.result() for f in futures.as_completed(wait_for)]
 
                 # generate the results and predictions as dataframes
-                df_results, df_preds = process_forecasts(wait_for)
-                df_results = df_results[df_results["rank"] == 1]
+                df_results, df_preds, df_model_dist, best_err, naive_err = \
+                    process_forecasts(wait_for)
 
                 # generate the demand classifcation info
                 df_demand_cln = make_demand_classification(df, freq_in)
@@ -701,6 +704,9 @@ def panel_launch():
             state.report["sfs"]["df_results"] = df_results
             state.report["sfs"]["df_preds"] = df_preds
             state.report["sfs"]["df_demand_cln"] = df_demand_cln
+            state.report["sfs"]["df_model_dist"] = df_model_dist
+            state.report["sfs"]["best_err"] = best_err
+            state.report["sfs"]["naive_err"] = naive_err
             state.report["sfs"]["job_duration"] = time.time() - start
 
         job_duration = state.report["sfs"].get("job_duration", None)
@@ -718,10 +724,13 @@ def panel_accuracy():
     df = state.report["data"].get("df", None)
     df_demand_cln = state.report["sfs"].get("df_demand_cln", None)
     df_results = state.report["sfs"].get("df_results", None)
+    df_model_dist = state["report"]["sfs"].get("df_model_dist", None)
+    best_err = state["report"]["sfs"].get("best_err", None)
+    naive_err = state["report"]["sfs"].get("naive_err", None)
     horiz = state.report["sfs"].get("horiz", None)
     freq_out = state.report["sfs"].get("freq", None)
 
-    if df is None or df_results is None:
+    if df is None or df_results is None or df_model_dist is None:
         return
 
     with st.beta_expander("🎯 Forecast Summary", expanded=True):
@@ -750,19 +759,6 @@ def panel_accuracy():
                     f"Medium:\t\t{df_cln.iloc[1]['frac']} %\n"
                     f"Continuous:\t{df_cln.iloc[2]['frac']} %")
 
-
-        if "df_model_dist" not in state["report"]["sfs"]:
-            # generate the performance summary (runtime)
-            df_model_dist, best_err, naive_err = make_perf_summary(df_results)
-
-            state["report"]["df_model_dist"] = df_model_dist
-            state["report"]["best_err"] = best_err
-            state["report"]["naive_err"] = naive_err
-        else:
-            df_model_dist = state["report"]["df_model_dist"]
-            best_err = state["report"]["best_err"]
-            naive_err = state["report"]["naive_err"]
-
         with _cols[1]:
             st.markdown("#### Best Models")
             df_model_dist = df_model_dist.query("perc > 0")
@@ -785,6 +781,7 @@ def panel_accuracy():
 
         with _cols[2]:
             st.markdown("#### Overall Accuracy")
+
             st.markdown(
                 f"<div style='font-size:36pt;font-weight:bold'>{acc:.0f}%</div>"
                 f"({np.clip(acc - acc_naive, 0, None):.0f}% increase vs. naive)", unsafe_allow_html=True)
@@ -920,7 +917,7 @@ def panel_top_performers():
         st.text(f"(completed in {format_timespan(time.time() - start)})")
 
         if st.button("Export"):
-            with st.spinner("Exporting **Top Performers** ..."):
+            with st.spinner(":hourglass_flowing_sand: Exporting **Top Performers** ..."):
                 start = time.time()
 
                 # write the dataframe to s3
@@ -1005,11 +1002,11 @@ def panel_visualization():
             fig = go.Figure()
             fig.add_trace(go.Scatter(
                 x=y_ts, y=y, mode='lines', name="actual",
-                fill="tozeroy", line={"width": 3.5}, marker=dict(size=4)
+                fill="tozeroy", line={"width": 3}
             ))
             fig.add_trace(go.Scatter(
                 x=yp_ts, y=yp, mode='lines', name="forecast",
-                fill="tozeroy", line={"width": 3.5}, marker=dict(size=4)
+                fill="tozeroy", line={"width": 3}
             ))
 
             # plot 
@@ -1078,37 +1075,67 @@ def panel_downloads():
     if df is None or df_results is None or df_preds is None:
         return
 
-    with st.beta_expander("⬇️  Downloads", expanded=True):
-        export_forecasts_btn = \
-            st.button("Export Forecasts", key="sfs_export_forecast_btn")
+    # use cached forecast files if previously generated
+    sfs_forecasts_s3_path = state.report["sfs"].get("forecasts_s3_path", None)
+    sfs_backtests_s3_path = state.report["sfs"].get("backtests_s3_path", None)
 
-        if export_forecasts_btn:
-            start = time.time()
-            s3_sfs_export_path = state["report"]["sfs"]["s3_sfs_export_path"]
+    export_forecasts_btn = \
+        st.button("Export Forecasts", key="sfs_export_forecast_btn")
 
-            with st.spinner("Exporting Forecasts ..."):
+    if export_forecasts_btn:
+        start = time.time()
+
+        s3_sfs_export_path = state["report"]["sfs"]["s3_sfs_export_path"]
+
+        with st.spinner(":hourglass_flowing_sand: Exporting Forecasts ..."):
+            # export the forecast file to s3 if it doesnt exist
+            if sfs_forecasts_s3_path is None:
                 now_str = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
                 basename = os.path.basename(state["report"]["data"]["path"])
-                s3_forecasts_path = f'{s3_sfs_export_path}/{basename}_{now_str}_sfs-forecast.csv.gz'
-                wr.s3.to_csv(df_preds, s3_forecasts_path, compression="gzip", index=False)
-                forecasts_signed_url = create_presigned_url(s3_forecasts_path)
+                sfs_forecasts_s3_path = \
+                    f'{s3_sfs_export_path}/{basename}_{now_str}_sfs-forecasts.csv.gz'
 
-            st.info(textwrap.dedent(f"""
-            Download the forecasts file [here]({forecasts_signed_url})  
-            `(completed in {format_timespan(time.time()-start)})`.  
-            """))
+                wr.s3.to_csv(df_preds, sfs_forecasts_s3_path,
+                             compression="gzip", index=False)
 
-            with st.spinner("Exporting Backtests ..."):
-                #backtests_path = os.path.join(ST_STATIC_PATH, f"{basename}-sfs-backtests.csv.gz")
-                df_backtests = make_df_backtests(df_results)
-                s3_backtests_path = f'{s3_sfs_export_path}/{basename}_{now_str}_sfs-backtests.csv.gz'
-                wr.s3.to_csv(df_backtests, s3_backtests_path, compression="gzip", index=False)
-                backtests_signed_url = create_presigned_url(s3_backtests_path)
+                state["report"]["sfs"]["forecasts_s3_path"] = \
+                    sfs_forecasts_s3_path
+            else:
+                # reuse the previously exported forecast file
+                #st.info("Using previously exported forecast file")
+                pass
 
-            st.info(textwrap.dedent(f"""
-            Download the backtests file [here]({backtests_signed_url})  
-            `(completed in {format_timespan(time.time()-start)})`.
-            """))
+            forecasts_signed_url = create_presigned_url(sfs_forecasts_s3_path)
+
+        st.info(textwrap.dedent(f"""
+        Download the forecasts file [here]({forecasts_signed_url})  
+        `(completed in {format_timespan(time.time()-start)})`.  
+        """))
+
+        with st.spinner(":hourglass_flowing_sand: Exporting Backtests ..."):
+            # export the forecast file to s3 if it doesnt exist
+            if sfs_backtests_s3_path is None:
+                now_str = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+                basename = os.path.basename(state["report"]["data"]["path"])
+                sfs_backtests_s3_path = \
+                    f'{s3_sfs_export_path}/{basename}_{now_str}_sfs-backtests.csv.gz'
+
+                wr.s3.to_csv(df_preds, sfs_backtests_s3_path,
+                             compression="gzip", index=False)
+
+                state["report"]["sfs"]["backtests_s3_path"] = \
+                    sfs_backtests_s3_path
+            else:
+                # reuse the previously exported backtest file
+                #st.info("Using previously exported backtests file")
+                pass
+
+            backtests_signed_url = create_presigned_url(sfs_backtests_s3_path)
+
+        st.info(textwrap.dedent(f"""
+        Download the backtests file [here]({backtests_signed_url})  
+        `(completed in {format_timespan(time.time()-start)})`.
+        """))
 
 #               df_backtests.to_csv(backtests_path, compression="gzip", index=False)
 #                   st.info(textwrap.dedent(f"""
@@ -1520,12 +1547,15 @@ if __name__ == "__main__":
     - [github](https://github.com/aws-samples/simple-forecast-solution)
     """))
 
-    nav_radio_btn = \
-        st.sidebar.radio("Navigation", ["create_report", "load_report"],
-                         format_func=nav_radio_format_func)
+    st.sidebar.write("###")
 
-    save_report_btn = st.sidebar.button("💾 Save Report")
-    clear_report_btn = st.sidebar.button("❌ Clear Report")
+    _cols = st.sidebar.beta_columns(2)
+
+    with _cols[0]:
+        save_report_btn = st.button("💾 Save Report")
+
+    with _cols[1]:
+        clear_report_btn = st.button("❌ Clear Report")
 
     if save_report_btn:
         save_report()
@@ -1555,19 +1585,20 @@ if __name__ == "__main__":
         state["report"]["sfs"]["s3_sfs_reports_path"] = \
             f's3://{state["report"]["s3_bucket"]}/sfs-reports'
 
+    st.write(state["report"])
+
     #
     # Main page
     #
     st.subheader("Amazon Simple Forecast Accelerator")
 
-    if nav_radio_btn == "create_report":
-        st.title("Create Report")
-        st.markdown("")
-        panel_load_data()
-    elif nav_radio_btn == "load_report":
-        st.title("Load Report")
-        st.markdown("")
-        panel_load_report()
+    st.markdown("## Load Report")
+    st.markdown("")
+    panel_load_report(expanded=False)
+
+    st.markdown("## Create Report")
+    st.markdown("")
+    panel_create_report(expanded=True)
 
     panel_data_health()
 
