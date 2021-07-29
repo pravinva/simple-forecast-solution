@@ -396,6 +396,17 @@ def make_downloads(df_pred, df_results):
     return pred_fn, results_fn
 
 
+def _info(s):
+    st.info(textwrap.dedent(s))
+
+
+def _success(s):
+    st.success(textwrap.dedent(s))
+
+
+def _write(s):
+    st.write(textwrap.dedent(s))
+
 def panel_create_report(expanded=True):
     """Display the 'Load Data' panel.
 
@@ -415,86 +426,90 @@ def panel_create_report(expanded=True):
 
         return df
 
+    default_name = state["report"].get("name", None)
+    file_path = state["report"]["data"].get("path", None)
+    freq = state["report"]["data"].get("freq", None)
+
     st.markdown("## Create Report")
 
     with st.beta_expander("⬆️  Load + Validate Data", expanded=expanded):
+        st.write("""Step 1 – Create a new forecast report by selecting an uploaded
+        file containing the demand history for your use-case. You must also specify
+        the frequency of the demand (e.g. _Daily_, _Weekly_, or _Monthly_). Demand
+        history files are uploaded using the [SageMaker Notebook interface]()""")
+
         now_str = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
 
-        default_name = state["report"].get("name", None)
-        file_path = state["report"]["data"].get("path", None)
-        freq = state["report"]["data"].get("freq", None)
+        btn_refresh_files = st.button("Refresh Files", help="Refresh the _File_ selector with recently uploaded files.")
 
-        if default_name is None:
-            default_name = f"SfsReport_{now_str}"
-            report_name = st.text_input("Report Name", value=default_name)
-        else:
-            report_name = state["report"]["name"]
-            st.text(f"Report Name: {report_name}")
+        with st.form("create_report_form"):
+            report_name = st.text_input("Report Name (optional)", help="You may optionally give this report a name, otherwise one will be automatically generated.")
 
-        _cols = st.beta_columns([3,1])
+            _cols = st.beta_columns([3,1])
 
-        with _cols[0]:
-            if file_path is None:
-                fn = file_selectbox("File", args.local_dir)
-                btn_refresh_files = st.button("Refresh Files")
-            else:
-                st.text(f"File: {file_path}")
+            with _cols[0]:
+                fn = file_selectbox(
+                        "File (.csv or .csv.gz files)", args.local_dir,
+                        help="This file contains the demand history as either a `.csv` or `.csv.gz` file.")
 
-        with _cols[1]:
-            if freq is None:
+            with _cols[1]:
                 freq = st.selectbox("Frequency", list(FREQ_MAP.values()),
-                        format_func=lambda s: FREQ_MAP_LONG[s])
-                btn_validate = st.button("Validate")
+                        format_func=lambda s: FREQ_MAP_LONG[s],
+                        help="This input file must contain demand history at a _daily_, _weekly_, or _monthly_ frequency.")
 
-                if btn_validate:
-                    start = time.time()
+            btn_validate = st.form_submit_button("Load & Validate")
 
-                    if fn is None:
-                        st.error(textwrap.dedent("""
-                        **Error**
+        if btn_validate:
+            start = time.time()
 
-                        No files were selected.
+            if fn is None:
+                st.error(textwrap.dedent("""
+                **Error**
 
-                        1. Upload your file(s).
-                        2. Click the **Refresh Files** button.
-                        3. Select the file from the dropdown box.
-                        4. Select the **Frequency**.
-                        5. Click the **Validate** button.
+                No files were selected.
 
-                        ####
-                        """))
-                        st.stop()
+                1. Upload your file(s).
+                2. Click the **Refresh Files** button.
+                3. Select the file from the dropdown box.
+                4. Select the **Frequency**.
+                5. Click the **Validate** button.
 
-                    if report_name == "":
-                        st.error(textwrap.dedent("""
-                        **Error**: Please use a non-empty report name.
-                        """))
-                        st.stop()
+                ####
+                """))
+                st.stop()
 
-                    # temporarily load the file for validation and store it in state
-                    # iff the data is valid
-                    with st.spinner(":hourglass_flowing_sand: Validating file ..."):
-                        df, msgs, is_valid_file = validate(_load_data(fn))#.drop(["timestamp", "channel"], axis=1))
+            if report_name == "":
+                now_str = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+                report_name = f"SfsReport_{now_str}"
 
-                    if is_valid_file:
-                        with st.spinner(":hourglass_flowing_sand: Processing file ..."):
-                            state.report["name"] = report_name
-                            state.report["data"]["path"] = fn
-                            state.report["data"]["sz_bytes"] = os.path.getsize(fn)
-                            state.report["data"]["freq"] = freq
-                            state.report["data"]["df"] = \
-                                load_data(df, impute_freq=state.report["data"]["freq"])
+            # temporarily load the file for validation and store it in state
+            # iff the data is valid
+            with st.spinner(":hourglass_flowing_sand: Validating file ..."):
+                df, msgs, is_valid_file = validate(_load_data(fn))#.drop(["timestamp", "channel"], axis=1))
 
-                            # clear any existing data health check results, this forces
-                            # a rechecking of data health
-                            state.report["data"]["df_health"] = None
+            if is_valid_file:
+                with st.spinner(":hourglass_flowing_sand: Processing file ..."):
+                    state.report["name"] = report_name
+                    state.report["data"]["path"] = fn
+                    state.report["data"]["sz_bytes"] = os.path.getsize(fn)
+                    state.report["data"]["freq"] = freq
+                    state.report["data"]["df"] = \
+                        load_data(df, impute_freq=state.report["data"]["freq"])
+                    state.report["data"]["is_valid"] = True
 
-                            st.text(f"(completed in {format_timespan(time.time() - start)})")
-                    else:
-                        err_bullets = "\n".join("- " + s for s in msgs["errors"])
-                        st.error(f"**Validation failed**\n\n{err_bullets}")
+                    # clear any existing data health check results, this forces
+                    # a rechecking of data health
+                    state.report["data"]["df_health"] = None
+
+                    st.text(f"(completed in {format_timespan(time.time() - start)})")
             else:
-                st.text(f"Freq: {freq}")
+                err_bullets = "\n".join("- " + s for s in msgs["errors"])
+                st.error(f"**Validation failed**\n\n{err_bullets}")
+
+        if state.report["data"].get("is_valid", False):
+            _success(f"""
+            `{os.path.basename(state.report["data"]["path"])}` is **valid**
+            """)
 
     return
 
@@ -512,8 +527,11 @@ def panel_load_report(expanded=True):
     s3 = boto3.client("s3")
 
     st.markdown("## Load Report")
-
     with st.beta_expander("⬆️ Load Report", expanded=expanded):
+        st.write("""Optional – Alternatively, you can load a previously-generated
+        report. Report files must have the `.pkl.gz` file extension and can be uploaded
+        using the [SageMaker Notebook interface]().""")
+
         report_source = st.radio("Source", ["local"], format_func=format_func)
 
         _cols = st.beta_columns([3,1])
@@ -562,6 +580,11 @@ def panel_data_health():
     st.header("Data Health")
 
     with st.beta_expander("❤️ Data Health", expanded=True):
+        st.write(f"""Step 2 – Inspect the characteristics of the dataset
+                  for irregularities prior to generating any forecasts. For example,
+                  missing channels, families, item IDs; or unusually short/long
+                  timeseries lengths.""")
+
         with st.spinner("Performing data health check ..."):
             start = time.time()
 
@@ -662,7 +685,13 @@ def panel_launch():
     st.header("Statistical Forecasting")
 
     with st.beta_expander("🚀 Launch", expanded=True):
-        st.write("")
+        st.write(f"""Step 3 – Generate forecasts by training and evaluating 75+
+        configurations of [statistical forecasting
+        models](https://otexts.com/fpp3/) for each timeseries in
+        parallel using AWS Lambda. A forecast at the desired _horizon length_ and
+        _frequency_ is then generated using the each individual timeseries' best model.
+        This process typically completes at a rate of over 1,000 timeseries/min.
+        """)
         with st.form("sfs_form"):
             with st.beta_container():
                 _cols = st.beta_columns(3)
@@ -753,7 +782,21 @@ def panel_accuracy():
     if df is None or df_results is None or df_model_dist is None:
         return
 
+
     with st.beta_expander("🎯 Forecast Summary", expanded=True):
+        _write(f"""
+        Step 4 – The forecast error is calculated as the [symmetric
+        mean absolute percentage error
+        (SMAPE)](https://en.wikipedia.org/wiki/Symmetric_mean_absolute_percentage_error)
+        via sliding window backtesting. Forecast _accuracy_ is calculated as
+        `100-SMAPE` and is averaged across all timeseries to give the _overall
+        accuracy_. The overall accuracy of the best naive models is used as a baseline.
+        The _classification_ distribution indicates the percentage timeseries
+        that have a _short_, _medium_, or _continuous_ lifecycle. The _Best Models_ chart
+        shows the distribution of each model type that were selected as the best model 
+        across the dataset.
+        """)
+
         df_cln = pd.DataFrame({"category": ["short", "medium", "continuous"]})
         df_cln = df_cln.merge(
             df_demand_cln["category"]
@@ -896,6 +939,15 @@ def panel_top_performers():
         return
 
     with st.beta_expander("🏆 Top Performers", expanded=True):
+        _write(f"""
+        Step 5 – Inspect the forecast
+        accuracy of individual channels, families, and item IDs (and each subset
+        combination therein) for specific time periods and for groups of items
+        that cover a given percentage of total demand. For example, you can inspect
+        the accuracy for the smaller subset of items that cover 80% of demand in
+        the most recent six-month period.
+        """)
+
         st.write("#### Filters")
 
         _cols = st.beta_columns([2,1,1])
@@ -987,6 +1039,10 @@ def panel_visualization():
     item_id_index = item_id_vals.index(df_top["item_id"].iloc[0])
 
     with st.beta_expander("👁️  Visualization", expanded=True):
+        _write(f"""
+        Step 6 – Plot the historic, backtest, and forecasted demand for each 
+        timeseries.
+        """)
         with st.form("viz_form"):
             st.markdown("#### Filter By")
             _cols = st.beta_columns(3)
@@ -1095,67 +1151,75 @@ def panel_downloads():
     if df is None or df_results is None or df_preds is None:
         return
 
-    # use cached forecast files if previously generated
-    sfs_forecasts_s3_path = state.report["sfs"].get("forecasts_s3_path", None)
-    sfs_backtests_s3_path = state.report["sfs"].get("backtests_s3_path", None)
+    st.markdown("## Export")
 
-    export_forecasts_btn = \
-        st.button("Export Forecasts", key="sfs_export_forecast_btn")
 
-    if export_forecasts_btn:
-        start = time.time()
+    with st.beta_expander("⬇️ Export Forecasts", expanded=True):
+        _write(f"""
+        Export the forecasts and backtests as `.csv.gz` files.
+        """)
 
-        s3_sfs_export_path = state["report"]["sfs"]["s3_sfs_export_path"]
+        # use cached forecast files if previously generated
+        sfs_forecasts_s3_path = state.report["sfs"].get("forecasts_s3_path", None)
+        sfs_backtests_s3_path = state.report["sfs"].get("backtests_s3_path", None)
 
-        with st.spinner(":hourglass_flowing_sand: Exporting Forecasts ..."):
-            # export the forecast file to s3 if it doesnt exist
-            if sfs_forecasts_s3_path is None:
-                now_str = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
-                basename = os.path.basename(state["report"]["data"]["path"])
-                sfs_forecasts_s3_path = \
-                    f'{s3_sfs_export_path}/{basename}_{now_str}_sfs-forecasts.csv.gz'
+        export_forecasts_btn = \
+            st.button("Export", key="sfs_export_forecast_btn", help="Export the forecast and backtest files as `.csv.gz` files.")
 
-                wr.s3.to_csv(df_preds, sfs_forecasts_s3_path,
-                             compression="gzip", index=False)
+        if export_forecasts_btn:
+            start = time.time()
 
-                state["report"]["sfs"]["forecasts_s3_path"] = \
-                    sfs_forecasts_s3_path
-            else:
-                # reuse the previously exported forecast file
-                #st.info("Using previously exported forecast file")
-                pass
+            s3_sfs_export_path = state["report"]["sfs"]["s3_sfs_export_path"]
 
-            forecasts_signed_url = create_presigned_url(sfs_forecasts_s3_path)
+            with st.spinner(":hourglass_flowing_sand: Exporting Forecasts ..."):
+                # export the forecast file to s3 if it doesnt exist
+                if sfs_forecasts_s3_path is None:
+                    now_str = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+                    basename = os.path.basename(state["report"]["data"]["path"])
+                    sfs_forecasts_s3_path = \
+                        f'{s3_sfs_export_path}/{basename}_{now_str}_sfs-forecasts.csv.gz'
 
-        st.info(textwrap.dedent(f"""
-        Download the forecasts file [here]({forecasts_signed_url})  
-        `(completed in {format_timespan(time.time()-start)})`.  
-        """))
+                    wr.s3.to_csv(df_preds, sfs_forecasts_s3_path,
+                                 compression="gzip", index=False)
 
-        with st.spinner(":hourglass_flowing_sand: Exporting Backtests ..."):
-            # export the forecast file to s3 if it doesnt exist
-            if sfs_backtests_s3_path is None:
-                now_str = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
-                basename = os.path.basename(state["report"]["data"]["path"])
-                sfs_backtests_s3_path = \
-                    f'{s3_sfs_export_path}/{basename}_{now_str}_sfs-backtests.csv.gz'
+                    state["report"]["sfs"]["forecasts_s3_path"] = \
+                        sfs_forecasts_s3_path
+                else:
+                    # reuse the previously exported forecast file
+                    #st.info("Using previously exported forecast file")
+                    pass
 
-                wr.s3.to_csv(df_preds, sfs_backtests_s3_path,
-                             compression="gzip", index=False)
+                forecasts_signed_url = create_presigned_url(sfs_forecasts_s3_path)
 
-                state["report"]["sfs"]["backtests_s3_path"] = \
-                    sfs_backtests_s3_path
-            else:
-                # reuse the previously exported backtest file
-                #st.info("Using previously exported backtests file")
-                pass
+            st.info(textwrap.dedent(f"""
+            Download the forecasts file [here]({forecasts_signed_url})  
+            `(completed in {format_timespan(time.time()-start)})`.  
+            """))
 
-            backtests_signed_url = create_presigned_url(sfs_backtests_s3_path)
+            with st.spinner(":hourglass_flowing_sand: Exporting Backtests ..."):
+                # export the forecast file to s3 if it doesnt exist
+                if sfs_backtests_s3_path is None:
+                    now_str = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+                    basename = os.path.basename(state["report"]["data"]["path"])
+                    sfs_backtests_s3_path = \
+                        f'{s3_sfs_export_path}/{basename}_{now_str}_sfs-backtests.csv.gz'
 
-        st.info(textwrap.dedent(f"""
-        Download the backtests file [here]({backtests_signed_url})  
-        `(completed in {format_timespan(time.time()-start)})`.
-        """))
+                    wr.s3.to_csv(df_preds, sfs_backtests_s3_path,
+                                 compression="gzip", index=False)
+
+                    state["report"]["sfs"]["backtests_s3_path"] = \
+                        sfs_backtests_s3_path
+                else:
+                    # reuse the previously exported backtest file
+                    #st.info("Using previously exported backtests file")
+                    pass
+
+                backtests_signed_url = create_presigned_url(sfs_backtests_s3_path)
+
+            st.info(textwrap.dedent(f"""
+            Download the backtests file [here]({backtests_signed_url})  
+            `(completed in {format_timespan(time.time()-start)})`.
+            """))
 
 #               df_backtests.to_csv(backtests_path, compression="gzip", index=False)
 #                   st.info(textwrap.dedent(f"""
@@ -1518,7 +1582,7 @@ def refresh_ml_state_machine_status():
     return sfn_status, status_dict
 
 
-def file_selectbox(label, folder, globs=("*.csv", "*.csv.gz")):
+def file_selectbox(label, folder, globs=("*.csv", "*.csv.gz"), **kwargs):
     """
     """
 
@@ -1529,7 +1593,8 @@ def file_selectbox(label, folder, globs=("*.csv", "*.csv.gz")):
         for pat in globs:
             fns.extend(glob.glob(os.path.join(folder, pat)))
 
-    fn = st.selectbox(label, fns, format_func=lambda s: os.path.basename(s))
+    fn = st.selectbox(label, fns, format_func=lambda s: os.path.basename(s),
+            **kwargs)
 
     return fn
 
@@ -1564,7 +1629,7 @@ if __name__ == "__main__":
     #
     st.sidebar.title("Amazon Simple Forecast Accelerator")
     st.sidebar.markdown(textwrap.dedent("""
-    - [github](https://github.com/aws-samples/simple-forecast-solution)
+    - [source code @ github](https://github.com/aws-samples/simple-forecast-solution)
     """))
 
     clear_report_btn = st.sidebar.button("❌ Clear Report")
@@ -1594,15 +1659,15 @@ if __name__ == "__main__":
         state["report"]["sfs"]["s3_sfs_reports_path"] = \
             f's3://{state["report"]["s3_bucket"]}/sfs-reports'
 
-    st.write(state["report"])
+    #st.write(state["report"])
 
     #
     # Main page
     #
-    st.subheader("Amazon Simple Forecast Accelerator")
+    #st.subheader("Amazon Simple Forecast Accelerator")
 
+    panel_create_report(expanded=False)
     panel_load_report(expanded=False)
-    panel_create_report(expanded=True)
 
     panel_data_health()
 
@@ -1610,15 +1675,19 @@ if __name__ == "__main__":
     panel_accuracy()
     panel_top_performers()
     panel_visualization()
+
     panel_downloads()
 
     def panel_save_report():
         if "data" not in state["report"] or "path" not in state["report"]["data"] or \
            "df" not in state["report"]["data"]:
            return
-        st.markdown("## Save Report")
 
         with st.beta_expander("💾 Save Report", expanded=True):
+            _write(f"""
+            Save this report for future use, note that the filename must have the `.pkl.gz`
+            file extension. You can then re-load the report using the [Load Report](#load-report) form.
+            """)
             default_name = f'{state.report["name"]}.report.pkl.gz'
             report_fn = st.text_input("File name", value=default_name,
                 help="Please note that the report file name needs to have a `.pkl.gz` file extension.")
