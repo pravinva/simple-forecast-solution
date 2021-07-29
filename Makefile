@@ -11,7 +11,7 @@ export SHELL
 SHELL:=/bin/bash
 ROOT_DIR:=$(shell dirname $(realpath $(lastword $(MAKEFILE_LIST))))
 EMAIL:=
-INSTANCE_TYPE:=ml.t3.xlarge
+INSTANCE_TYPE:=ml.t2.medium
 
 # Deploy the SFS stack
 deploy: SfsStack
