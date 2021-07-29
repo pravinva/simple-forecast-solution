@@ -89,12 +89,13 @@ aws lambda invoke --function-name {sns_lambda_function} \
 
 # Update the url in the landing page
 sed -i 's|INSERT_URL_HERE|https:\/\/'$DASHBOARD_URL'|' /home/ec2-user/SageMaker/SFS_Landing_Page.ipynb
-mkdir -p /home/ec2-user/SageMaker/reports/
+#mkdir -p /home/ec2-user/SageMaker/reports/
+chmod a+rx /home/ec2-user/SageMaker/
 
 #
 # Start SFS dashboard in the background
 #
-/home/ec2-user/anaconda3/bin/conda create -q -n sfs python=3.8.10
+#/home/ec2-user/anaconda3/bin/conda create -q -n sfs python=3.8.10
 source /home/ec2-user/anaconda3/bin/activate sfs
 
 # Install the SfsLambdaMapStack
@@ -128,7 +129,7 @@ cd ./simple-forecast-solution
 #pip install -q -e .
 
 # Copy the landing page to the user SFS workspace
-cp -rp ./cdk/SFS_Landing_Page.ipynb ./cdk/images/ /home/ec2-user/SageMaker/
+cp -rp ./cdk/workspaces/* /home/ec2-user/SageMaker/
 chmod a+rwx /home/ec2-user/SageMaker/SFS_Landing_Page.ipynb
 
 # Install aws-cdk
@@ -157,7 +158,7 @@ source /home/ec2-user/anaconda3/bin/activate JupyterSystemEnv
 pip uninstall -q --yes nbserverproxy || true
 pip install -q --upgrade jupyter-server-proxy
 
-sudo -u ec2-user mkdir -p /home/ec2-user/SageMaker/output/
+#sudo -u ec2-user mkdir -p /home/ec2-user/SageMaker/output/
 """
 
 # This is the lambda that sends the notification email to the user once
