@@ -105,8 +105,8 @@ cd ./lambdamap/
 pip install -q -e .
 
 git clone https://github.com/aws-samples/simple-forecast-solution.git
-git checkout develop
 cd ./simple-forecast-solution/
+git checkout develop
 pip install -q -e .
 
 nohup streamlit run -- ./sfs/app/app.py --local-dir /home/ec2-user/SageMaker/ --landing-page-url $LANDING_PAGE_URL &
@@ -126,8 +126,8 @@ source /home/ec2-user/anaconda3/bin/activate sfs
 
 # Install the dashboard
 git clone https://github.com/aws-samples/simple-forecast-solution.git
-git checkout develop
 cd ./simple-forecast-solution
+git checkout develop
 #pip install -q -e .
 
 # Copy the landing page to the user SFS workspace
