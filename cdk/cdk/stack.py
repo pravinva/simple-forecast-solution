@@ -109,7 +109,7 @@ cd ./simple-forecast-solution/
 git checkout develop
 pip install -q -e .
 
-nohup streamlit run -- ./sfs/app/app.py --local-dir /home/ec2-user/SageMaker/ --landing-page-url $LANDING_PAGE_URL &
+nohup streamlit run --theme.base light --browser.gatherUsageStats false -- ./sfs/app/app.py --local-dir /home/ec2-user/SageMaker/ --landing-page-url $LANDING_PAGE_URL &
 """
 
 # This is run *once* ever, upon the *creation* of the notebook
