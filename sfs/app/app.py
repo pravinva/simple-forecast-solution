@@ -1151,9 +1151,6 @@ def panel_downloads():
     if df is None or df_results is None or df_preds is None:
         return
 
-    st.markdown("## Export")
-
-
     with st.beta_expander("⬇️ Export Forecasts", expanded=True):
         _write(f"""
         Export the forecasts and backtests as `.csv.gz` files.
@@ -1684,6 +1681,13 @@ if __name__ == "__main__":
     panel_top_performers()
     panel_visualization()
 
+    panel_ml_launch()
+    panel_ml_forecast_summary()
+    panel_ml_visualization()
+
+    if "df" in state["report"]["data"]:
+        st.markdown("## Export")
+
     panel_downloads()
 
     def panel_save_report():
@@ -1706,6 +1710,3 @@ if __name__ == "__main__":
 
     panel_save_report()
 
-    panel_ml_launch()
-    panel_ml_forecast_summary()
-    panel_ml_visualization()
