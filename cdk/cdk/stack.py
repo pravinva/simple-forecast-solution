@@ -95,7 +95,7 @@ chmod a+rx /home/ec2-user/SageMaker/
 #
 # Start SFS dashboard in the background
 #
-#/home/ec2-user/anaconda3/bin/conda create -q -n sfs python=3.8.10
+/home/ec2-user/anaconda3/bin/conda create -q -n sfs python=3.8.10
 source /home/ec2-user/anaconda3/bin/activate sfs
 
 # Install the SfsLambdaMapStack
