@@ -114,11 +114,11 @@ class BootstrapStack(cdk.Stack):
             cd ./cdk
             pip install -q -r ./requirements.txt
 
-            #cdk bootstrap
-            #cdk deploy SfsStack \
-            #    --parameters SfsStack:emailAddress={email_address} \
-            #    --parameters SfsStack:instanceType={instance_type} \
-            #    --require-approval never
+            cdk bootstrap
+            cdk deploy SfsStack \
+                --parameters SfsStack:emailAddress={email_address} \
+                --parameters SfsStack:instanceType={instance_type} \
+                --require-approval never
 
             which python
             EOF
