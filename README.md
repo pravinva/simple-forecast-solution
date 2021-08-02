@@ -3,6 +3,16 @@
 ![](https://img.shields.io/badge/license-MIT--0-green)
 ![](https://img.shields.io/github/workflow/status/aws-samples/simple-forecast-solution/pytest/main)
 
+
+## One-Click Deployment
+
+Region name | Region code | Launch
+--- | --- | ---
+US East (N. Virginia) | us-east-1 | [![Launch Stack](https://cdn.rawgit.com/buildkite/cloudformation-launch-stack-button-svg/master/launch-stack.svg)]()
+US West (Oregon) | us-west-2 | [![Launch Stack](https://cdn.rawgit.com/buildkite/cloudformation-launch-stack-button-svg/master/launch-stack.svg)]()
+Europe (Ireland) | eu-west-1 | [![Launch Stack](https://cdn.rawgit.com/buildkite/cloudformation-launch-stack-button-svg/master/launch-stack.svg)]()
+
+
 # :construction: Currently Refactoring :construction:
 
 Hi there! refactoring of SFS is nearly complete, please watch this space!

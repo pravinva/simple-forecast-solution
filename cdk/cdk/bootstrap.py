@@ -17,7 +17,7 @@ class BootstrapStack(cdk.Stack):
 
         email_address = core.CfnParameter(self, "emailAddress").value_as_string
         instance_type = core.CfnParameter(self, "instanceType",
-                default="ml.t3.xlarge").value_as_string
+            default="ml.t3.xlarge").value_as_string
 
         vpc = ec2.Vpc(self, f"{construct_id}-Vpc", max_azs=1)
 
@@ -27,13 +27,49 @@ class BootstrapStack(cdk.Stack):
             assumed_by=iam.ServicePrincipal("ec2.amazonaws.com"),
             managed_policies=[
                 iam.ManagedPolicy.from_aws_managed_policy_name("IAMFullAccess"),
-                iam.ManagedPolicy.from_aws_managed_policy_name("AmazonVPCFullAccess"),
-                iam.ManagedPolicy.from_aws_managed_policy_name("AmazonEC2FullAccess"),
-                iam.ManagedPolicy.from_aws_managed_policy_name("EC2InstanceProfileForImageBuilderECRContainerBuilds"),
-                iam.ManagedPolicy.from_aws_managed_policy_name("AWSCloudFormationFullAccess"),
+                iam.ManagedPolicy.from_aws_managed_policy_name("AmazonSageMakerFullAccess"),
+                iam.ManagedPolicy.from_aws_managed_policy_name("AmazonEC2ContainerRegistryFullAccess"),
                 iam.ManagedPolicy.from_aws_managed_policy_name("AmazonSSMManagedInstanceCore"),
                 iam.ManagedPolicy.from_aws_managed_policy_name("CloudWatchAgentServerPolicy")
             ])
+
+        ec2_role.add_to_policy(iam.PolicyStatement(
+            resources=[f"arn:aws:cloudformation:{self.region}:{self.account}:*"],
+            actions=["cloudformation:*"]
+        ))
+
+        ec2_role.add_to_policy(iam.PolicyStatement(
+            resources=[f"arn:aws:logs:{self.region}:{self.account}:*"],
+            actions=["logs:*"]
+        ))
+
+        ec2_role.add_to_policy(iam.PolicyStatement(
+            resources=[
+                f"arn:aws:s3:::cdktoolkit-stagingbucket-*",
+                f"arn:aws:s3:::*-{self.account}-{self.region}",
+            ],
+            actions=["s3:*"]
+        ))
+
+        ec2_role.add_to_policy(iam.PolicyStatement(
+            resources=[f"arn:aws:lambda:{self.region}:{self.account}:*"],
+            actions=["lambda:*"]
+        ))
+
+        ec2_role.add_to_policy(iam.PolicyStatement(
+            resources=[f"arn:aws:ssm:{self.region}:{self.account}:*"],
+            actions=["ssm:*"]
+        ))
+
+        ec2_role.add_to_policy(iam.PolicyStatement(
+            resources=[f"arn:aws:states:{self.region}:{self.account}:*"],
+            actions=["states:*"]
+        ))
+
+        ec2_role.add_to_policy(iam.PolicyStatement(
+            resources=[f"arn:aws:sns:{self.region}:{self.account}:*"],
+            actions=["sns:*"]
+        ))
 
         ami = ec2.MachineImage.generic_linux({
             "ap-southeast-2": "ami-0aab712d6363da7f9"
@@ -76,12 +112,12 @@ class BootstrapStack(cdk.Stack):
             cd ./simple-forecast-solution
             git checkout develop
             cd ./cdk
-            pip install -r ./requirements.txt
+            pip install -q -r ./requirements.txt
 
             #cdk bootstrap
             #cdk deploy SfsStack \
             #    --parameters SfsStack:emailAddress={email_address} \
-            #    --parameters SfsStack:instance_type={instance_type} \
+            #    --parameters SfsStack:instanceType={instance_type} \
             #    --require-approval never
 
             which python
