@@ -449,14 +449,6 @@ class SfsStack(cdk.Stack):
         cd ./lambdamap/
         pip install -q -e .
 
-        # deploy the SfsLambdaMapStack (required by the dashboard code)
-        cd ./lambdamap_cdk/
-        pip install -q -r ./requirements.txt
-        nohup cdk deploy --require-approval never \
-            --context stack_name={construct_id}-LambdaMapStack \
-            --context function_name=SfsLambdaMapFunction \
-            --context extra_cmds='git clone https://github.com/aws-samples/simple-forecast-solution.git ; cd ./simple-forecast-solution/ ; git checkout develop ; pip install -e .' &
-
         EOF
         """)
 

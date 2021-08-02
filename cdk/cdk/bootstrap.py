@@ -116,6 +116,15 @@ class BootstrapStack(cdk.Stack):
             # install the aws-cdk cli tool (req. for running `cdk deploy ...`)
             npm i -g aws-cdk@1.116.0
 
+            # deploy the SfsLambdaMapStack (required by the dashboard code)
+            git clone https://github.com/aws-samples/lambdamap.git
+            cd ./lambdamap/lambdamap_cdk/
+            pip install -q -r ./requirements.txt
+            cdk deploy --require-approval never \
+                --context stack_name=SfsLambdaMapStack \
+                --context function_name=SfsLambdaMapFunction \
+                --context extra_cmds='git clone https://github.com/aws-samples/simple-forecast-solution.git ; cd ./simple-forecast-solution/ ; git checkout develop ; pip install -e .'
+
             git clone https://github.com/aws-samples/simple-forecast-solution.git
             cd ./simple-forecast-solution
             git checkout develop
