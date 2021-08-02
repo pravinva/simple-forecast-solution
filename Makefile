@@ -13,14 +13,11 @@ ROOT_DIR:=$(shell dirname $(realpath $(lastword $(MAKEFILE_LIST))))
 EMAIL:=
 INSTANCE_TYPE:=ml.t2.medium
 
-# Deploy SFA via the boostrap instance
-BootstrapStack:
-	cd cdk ; \
-		cdk deploy $@ --parameters $@:emailAddress=${EMAIL} \
-		--parameters $@:instanceType=${INSTANCE_TYPE}
-
 # Deploy the SFS stack
 deploy: SfsStack
+
+template.yaml:
+	( cd cdk ; cdk synth SfsBootstrapStack ) > $@
 
 destroy:
 	cd cdk ; cdk destroy --all
