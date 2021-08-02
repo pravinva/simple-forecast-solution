@@ -26,7 +26,11 @@ class BootstrapStack(cdk.Stack):
             "SfsInstanceRole",
             assumed_by=iam.ServicePrincipal("ec2.amazonaws.com"),
             managed_policies=[
-                iam.ManagedPolicy.from_aws_managed_policy_name("AdministratorAccess"),
+                iam.ManagedPolicy.from_aws_managed_policy_name("IAMFullAccess"),
+                iam.ManagedPolicy.from_aws_managed_policy_name("AmazonVPCFullAccess"),
+                iam.ManagedPolicy.from_aws_managed_policy_name("AmazonEC2FullAccess"),
+                iam.ManagedPolicy.from_aws_managed_policy_name("EC2InstanceProfileForImageBuilderECRContainerBuilds"),
+                iam.ManagedPolicy.from_aws_managed_policy_name("AWSCloudFormationFullAccess"),
                 iam.ManagedPolicy.from_aws_managed_policy_name("AmazonSSMManagedInstanceCore"),
                 iam.ManagedPolicy.from_aws_managed_policy_name("CloudWatchAgentServerPolicy")
             ])
@@ -74,11 +78,11 @@ class BootstrapStack(cdk.Stack):
             cd ./cdk
             pip install -r ./requirements.txt
 
-            cdk bootstrap
-            cdk deploy SfsStack \
-                --parameters SfsStack:emailAddress={email_address} \
-                --parameters SfsStack:instance_type={instance_type} \
-                --require-approval never
+            #cdk bootstrap
+            #cdk deploy SfsStack \
+            #    --parameters SfsStack:emailAddress={email_address} \
+            #    --parameters SfsStack:instance_type={instance_type} \
+            #    --require-approval never
 
             which python
             EOF
