@@ -81,7 +81,15 @@ class BootstrapStack(cdk.Stack):
             whoami
             pwd
 
+            # install git
             yum install -y git
+
+            # install + start docker
+            amazon-linux-extras install -y docker
+            systemctl enable docker
+            systemctl start docker
+            usermod -aG docker ec2-user 
+            setfacl --modify user:ec2-user:rw /var/run/docker.sock
 
             time sudo -u ec2-user -i <<'EOF'
             #!/bin/bash
@@ -112,6 +120,7 @@ class BootstrapStack(cdk.Stack):
             cd ./simple-forecast-solution
             git checkout develop
             cd ./cdk
+            python -m pip install --upgrade pip
             pip install -q -r ./requirements.txt
 
             cdk bootstrap
@@ -120,7 +129,7 @@ class BootstrapStack(cdk.Stack):
                 --parameters SfsStack:instanceType={instance_type} \
                 --require-approval never
 
-            which python
+            shutdown -h now
             EOF
             """)
         )
@@ -133,7 +142,7 @@ class BootstrapStack(cdk.Stack):
             block_devices=[{
                 "deviceName": "/dev/xvda",
                 "volume": ec2.BlockDeviceVolume.ebs(
-                    volume_size=10,
+                    volume_size=8,
                     delete_on_termination=True)
             }],
             machine_image=ami,
