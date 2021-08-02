@@ -1,7 +1,6 @@
 import os
 
-from aws_cdk import core as cdk
-
+from textwrap import dedent
 from aws_cdk import (
     aws_s3 as s3,
     aws_ssm as ssm,
@@ -13,188 +12,11 @@ from aws_cdk import (
     aws_ec2 as ec2,
     aws_stepfunctions as sfn,
     aws_stepfunctions_tasks as tasks,
-    core
+    core,
+    core as cdk
 )
 
 PWD = os.path.dirname(os.path.realpath(__file__))
-
-# This is the lambda that sends the notification email to the user once
-# the dashboard is deployed, it contains the URL to the landing page
-# sagemaker notebook.
-SNS_EMAIL_LAMBDA_INLINE = """import os
-import re
-import json
-import boto3
-import textwrap
-
-def lambda_handler(event, context):
-    payload = event["input"]["Payload"]
-
-    # get s3 location of the exports
-    afc_client = boto3.client("forecast")
-    resp = afc_client.describe_forecast_export_job(
-        ForecastExportJobArn=payload["ForecastExportJobArn"])
-    console_url = payload["AwsS3ConsoleUrl"]
-
-    client = boto3.client("sns")
-
-    response = client.publish(
-        TopicArn=os.environ["TOPIC_ARN"],
-        Subject="[Amazon SFA] Your Amazon Forecast job has completed!",
-        Message=textwrap.dedent(f'''
-        Hi!
-
-        Your Amazon Forecast job has completed.
-
-        The forecast files can be downloaded from the S3 path below:
-        ‣ {console_url}
-
-        Sincerely,
-        The Amazon SFS Team
-        ‣ https://github.com/aws-samples/simple-forecast-solution
-        '''))
-    return response
-"""
-
-#
-# Lifecycle config raw strings
-#
-
-# This is run *each time* the notebook instance is started
-LCC_ONSTART_STR = """#!/bin/bash
-set -e
-#
-# Upgrade jupyter-server-proxy
-#
-source /home/ec2-user/anaconda3/bin/activate JupyterSystemEnv
-
-pip uninstall -q --yes nbserverproxy || true
-pip install -q --upgrade jupyter-server-proxy
-initctl restart jupyter-server --no-wait
-
-# Get the notebook URL
-NOTEBOOK_URL=$(aws sagemaker describe-notebook-instance \
-    --notebook-instance-name {notebook_instance_name} \
-    --query "Url" \
-    --output text)
-DASHBOARD_URL=$NOTEBOOK_URL/proxy/8501/
-
-# Get the instructions ipynb notebook URL (email to user)
-LANDING_PAGE_URL=https://$NOTEBOOK_URL/lab/tree/SFS_Landing_Page.ipynb
-
-# Send SNS email
-aws lambda invoke --function-name {sns_lambda_function} \
-    --payload '{{"landing_page_url": "'$LANDING_PAGE_URL'", "dashboard_url": "'$DASHBOARD_URL'"}}' \
-    /dev/stdout
-
-# Update the url in the landing page
-sed -i 's|INSERT_URL_HERE|https:\/\/'$DASHBOARD_URL'|' /home/ec2-user/SageMaker/SFS_Landing_Page.ipynb
-#mkdir -p /home/ec2-user/SageMaker/reports/
-chmod a+rx /home/ec2-user/SageMaker/
-
-#
-# Start SFS dashboard in the background
-#
-/home/ec2-user/anaconda3/bin/conda create -q -n sfs python=3.8.10
-source /home/ec2-user/anaconda3/bin/activate sfs
-
-# Install the SfsLambdaMapStack
-git clone https://github.com/aws-samples/lambdamap.git
-
-cd ./lambdamap/
-pip install -q -e .
-
-git clone https://github.com/aws-samples/simple-forecast-solution.git
-cd ./simple-forecast-solution/
-git checkout develop
-pip install -q -e .
-
-nohup streamlit run --theme.base light --browser.gatherUsageStats false -- ./sfs/app/app.py --local-dir /home/ec2-user/SageMaker/ --landing-page-url $LANDING_PAGE_URL &
-"""
-
-# This is run *once* ever, upon the *creation* of the notebook
-LCC_ONCREATE_STR = """#!/bin/bash
-set -e
-export LC_ALL=en_US.utf-8 && export LANG=en_US.utf-8
-source /home/ec2-user/anaconda3/bin/activate JupyterSystemEnv
-
-#
-# Install SFS
-#
-/home/ec2-user/anaconda3/bin/conda create -q -n sfs python=3.8.10
-source /home/ec2-user/anaconda3/bin/activate sfs
-
-# Install the dashboard
-git clone https://github.com/aws-samples/simple-forecast-solution.git
-cd ./simple-forecast-solution
-git checkout develop
-#pip install -q -e .
-
-# Copy the landing page to the user SFS workspace
-cp -rp ./cdk/workspace/* /home/ec2-user/SageMaker/
-chmod a+rwx /home/ec2-user/SageMaker/SFS_Landing_Page.ipynb
-
-# Install aws-cdk
-curl -sL https://rpm.nodesource.com/setup_14.x | bash - \
-    && yum install -y nodejs \
-    && npm install -g aws-cdk@1.114.0
-
-# Install the SfsLambdaMapStack
-git clone https://github.com/aws-samples/lambdamap.git
-
-cd ./lambdamap/
-pip install -q -e .
-
-cd ./lambdamap_cdk/
-pip install -q -r ./requirements.txt
-nohup cdk deploy --require-approval never \
-    --context stack_name={sfs_lambdamap_stack_name} \
-    --context function_name=SfsLambdaMapFunction \
-    --context extra_cmds='git clone https://github.com/aws-samples/simple-forecast-solution.git ; cd ./simple-forecast-solution/ ; git checkout develop ; pip install -e .' &
-
-#
-# Upgrade jupyter-server-proxy
-#
-source /home/ec2-user/anaconda3/bin/activate JupyterSystemEnv
-
-pip uninstall -q --yes nbserverproxy || true
-pip install -q --upgrade jupyter-server-proxy
-
-#sudo -u ec2-user mkdir -p /home/ec2-user/SageMaker/output/
-"""
-
-# This is the lambda that sends the notification email to the user once
-# the dashboard is deployed, it contains the URL to the landing page
-# sagemaker notebook.
-SNS_EMAIL_LAMBDA_INLINE = """import os
-import re
-import json
-import boto3
-import textwrap
-
-def lambda_handler(event, context):
-    landing_page_url = "https://" + re.sub(r"^(https*://)", "", event["landing_page_url"])
-    dashboard_url = "https://" + re.sub(r"^(https*://)", "", event["dashboard_url"])
-
-    client = boto3.client("sns")
-    response = client.publish(
-        TopicArn=os.environ["TOPIC_ARN"],
-        Subject="Your Amazon SFS Dashboard is Ready!",
-        Message=textwrap.dedent(f'''
-        Congratulations!
-        
-        Amazon SFS has been successfully deployed into your AWS account.
-        
-        Visit the landing page below to get started:
-        ‣ {landing_page_url}
-        
-        Sincerely,
-        The Amazon SFS Team
-        ‣ https://github.com/aws-samples/simple-forecast-solution
-        '''))
-    
-    return response
-"""
 
 
 class SfsStack(cdk.Stack):
@@ -255,33 +77,16 @@ class SfsStack(cdk.Stack):
         sns_lambda = lambda_.Function(self, f"{construct_id}-SnsEmailLambda",
             runtime=lambda_.Runtime.PYTHON_3_8,
             environment={"TOPIC_ARN": f"arn:aws:sns:{self.region}:{self.account}:{topic.topic_name}"},
-            code=lambda_.Code.from_inline(SNS_EMAIL_LAMBDA_INLINE),
+            code=self.make_dashboard_ready_email_inline_code(),
             handler="index.lambda_handler",
             role=sns_lambda_role)
 
         #
         # Notebook lifecycle configuration
         #
-        notebook_instance_name=f"{construct_id}-NotebookInstance"
-
-        lcc_onstart_obj = \
-            sm.CfnNotebookInstanceLifecycleConfig \
-              .NotebookInstanceLifecycleHookProperty(
-                  content=core.Fn.base64(LCC_ONSTART_STR.format(
-                      notebook_instance_name=notebook_instance_name,
-                      sns_lambda_function=sns_lambda.function_name)))
-
-        lcc_oncreate_obj = \
-            sm.CfnNotebookInstanceLifecycleConfig \
-              .NotebookInstanceLifecycleHookProperty(
-                  content=core.Fn.base64(LCC_ONCREATE_STR.format(
-                      sfs_lambdamap_stack_name=f"{construct_id}-LambdaMapStack")))
-
-        lcc = sm.CfnNotebookInstanceLifecycleConfig(
-            self,
-            f"{construct_id}-NotebookLifecycleConfig",
-            on_create=[lcc_oncreate_obj],
-            on_start=[lcc_onstart_obj])
+        notebook_instance_name = f"{construct_id}-NotebookInstance"
+        lcc = self.make_nb_lcc(construct_id, notebook_instance_name,
+                sns_lambda.function_name)
 
         #
         # Notebook role
@@ -557,19 +362,19 @@ class SfsStack(cdk.Stack):
         #
         # SNS EMAIL
         #
-        sns_email_lambda = \
+        sns_afc_email_lambda = \
             lambda_.Function(self, f"{construct_id}-SnsAfcEmailLambda",
             runtime=lambda_.Runtime.PYTHON_3_8,
             environment={"TOPIC_ARN": topic.topic_arn},
-            code=lambda_.Code.from_inline(SNS_EMAIL_LAMBDA_INLINE),
+            code=self.make_afc_email_inline_code(),
             handler="index.lambda_handler",
             role=afc_role)
 
-        sns_email_step = \
+        sns_afc_email_step = \
             tasks.LambdaInvoke(
                 self,
                 "SnsAfcEmailStep",
-                lambda_function=sns_email_lambda,
+                lambda_function=sns_afc_email_lambda,
                 payload=sfn.TaskInput.from_object({
                     "input": sfn.JsonPath.string_at("$")
                 })
@@ -584,7 +389,7 @@ class SfsStack(cdk.Stack):
                                  .next(create_forecast_export_step) \
                                  .next(postprocess_step) \
                                  .next(delete_afc_resources_step) \
-                                 .next(sns_email_step)
+                                 .next(sns_afc_email_step)
 
         state_machine = sfn.StateMachine(self,
             "SfsSsmAfcStateMachine",
@@ -596,3 +401,251 @@ class SfsStack(cdk.Stack):
             "SfsSsmAfcStateMachineArn",
             string_value=state_machine.state_machine_arn,
             parameter_name="SfsAfcStateMachineArn")
+
+    def make_nb_lcc_oncreate(self, construct_id):
+        """Make the OnCreate script of the lifecycle configuration
+
+        """
+
+        script_str = dedent(f"""
+        #!/bin/bash
+
+        time sudo -u ec2-user -i <<'EOF'
+        #!/bin/bash
+        unset SUDO_UID
+
+        # install miniconda into ~/SageMaker/miniconda, which will make it
+        # persistent
+        CONDA_DIR=~/SageMaker/miniconda/
+
+        mkdir -p "$CONDA_DIR"
+
+        wget -q https://repo.anaconda.com/miniconda/Miniconda3-py39_4.10.3-Linux-x86_64.sh \
+            -O "$CONDA_DIR/miniconda.sh"
+        bash "$CONDA_DIR/miniconda.sh" -b -u -p "$CONDA_DIR"
+        rm -rf "$CONDA_DIR/miniconda.sh"
+
+        # use local miniconda distro
+        source "$CONDA_DIR/bin/activate"
+
+        # install custom conda environment(s)
+        conda create -y -q -n py39 python=3.9 nodejs=14
+        conda activate py39
+
+        # install the aws-cdk cli tool (req. for running `cdk deploy ...`)
+        npm i -g aws-cdk@1.116.0
+
+        # switch to SageMaker directory for persistance
+        cd ~/SageMaker/
+
+        # install sfs (required by the dashboard code)
+        git clone https://github.com/aws-samples/simple-forecast-solution.git
+        cd ./simple-forecast-solution ;
+        git checkout develop
+        pip install -q -e .
+
+        # install lambdamap (required by the dashboard code)
+        git clone https://github.com/aws-samples/lambdamap.git
+        cd ./lambdamap/
+        pip install -q -e .
+
+        # deploy the SfsLambdaMapStack (required by the dashboard code)
+        cd ./lambdamap_cdk/
+        pip install -q -r ./requirements.txt
+        nohup cdk deploy --require-approval never \
+            --context stack_name={construct_id}-LambdaMapStack \
+            --context function_name=SfsLambdaMapFunction \
+            --context extra_cmds='git clone https://github.com/aws-samples/simple-forecast-solution.git ; cd ./simple-forecast-solution/ ; git checkout develop ; pip install -e .' &
+
+        EOF
+        """)
+
+        lcc = \
+            sm.CfnNotebookInstanceLifecycleConfig \
+              .NotebookInstanceLifecycleHookProperty(
+                  content=core.Fn.base64(script_str))
+
+        return lcc
+
+    def make_nb_lcc_onstart(self, notebook_instance_name, sns_lambda_function_name):
+        """Make the OnStart script of the lifecycle configuration.
+
+        """
+
+        script_str = dedent(f"""
+        #!/bin/bash
+
+        time sudo -u ec2-user -i <<'EOF'
+        #!/bin/bash
+        unset SUDO_UID
+
+        # ensure that the local conda distribution is used
+        CONDA_DIR=~/SageMaker/miniconda/
+        source "$CONDA_DIR/bin/activate"
+
+        # make the custom conda environments available as kernels in the
+        # jupyter notebooks
+        for env in $CONDA_DIR/envs/* ; do
+            basename=$(basename "$env")
+            source activate "$basename"
+            python -m ipykernel install --user --name "$basename" \
+                --display-name "Custom ($basename)"
+        done
+
+        conda activate py39
+
+        # Get the notebook URL
+        NOTEBOOK_URL=$(aws sagemaker describe-notebook-instance \
+            --notebook-instance-name {notebook_instance_name} \
+            --query "Url" \
+            --output text)
+        DASHBOARD_URL=$NOTEBOOK_URL/proxy/8501/
+
+        # Get the instructions ipynb notebook URL (email to user)
+        LANDING_PAGE_URL=https://$NOTEBOOK_URL/lab/tree/SFS_Landing_Page.ipynb
+
+        cd ~/SageMaker/simple-forecast-solution/
+
+        # update w/ the latest SFA code
+        git reset --hard
+        git pull --all
+
+        cp -rp ./cdk/workspace/* ~/SageMaker/
+
+        # Update the url in the landing page
+        sed -i 's|INSERT_URL_HERE|https:\/\/'$DASHBOARD_URL'|' ~/SageMaker/SFS_Landing_Page.ipynb
+
+        #
+        # start the streamlit demo  on port 8501 of the notebook instance,
+        # it will be viewable at:
+        #
+        # - https://<NOTEBOOK_URL>/proxy/8501/
+        #
+        nohup streamlit run --server.port 8501 --theme.base light \
+            --browser.gatherUsageStats false -- ./sfs/app/app.py \
+            --local-dir ~/SageMaker/ --landing-page-url $LANDING_PAGE_URL &
+
+        # Send SNS email
+        aws lambda invoke --function-name {sns_lambda_function_name} \
+            --payload '{{"landing_page_url": "'$LANDING_PAGE_URL'", "dashboard_url": "'$DASHBOARD_URL'"}}' \
+            /dev/stdout
+        EOF
+
+        # install jupyter-server-proxy
+        source /home/ec2-user/anaconda3/bin/activate JupyterSystemEnv
+
+        pip install --upgrade pip
+        pip uninstall -q --yes nbserverproxy || true
+        pip install -q --upgrade jupyter-server-proxy
+
+        # restart the jupyterlab server
+        initctl restart jupyter-server --no-wait
+        """)
+
+        lcc = sm.CfnNotebookInstanceLifecycleConfig \
+                .NotebookInstanceLifecycleHookProperty(
+                    content=core.Fn.base64(script_str))
+
+        return lcc
+
+    def make_nb_lcc(self, construct_id, notebook_instance_name, sns_lambda_function_name):
+        """
+        """
+
+        lcc_oncreate = self.make_nb_lcc_oncreate(construct_id)
+        lcc_onstart = self.make_nb_lcc_onstart(notebook_instance_name,
+            sns_lambda_function_name)
+
+        lcc = sm.CfnNotebookInstanceLifecycleConfig(
+            self,
+            f"{construct_id}-NotebookLifecycleConfig",
+            on_create=[lcc_oncreate],
+            on_start=[lcc_onstart])
+
+        return lcc
+        
+    def make_dashboard_ready_email_inline_code(self):
+        """This is the lambda that sends the notification email to the user once
+        the dashboard is deployed, it contains the URL to the landing page
+        sagemaker notebook.
+
+        """
+
+        inline_code_str = dedent("""
+        import os
+        import re
+        import json
+        import boto3
+        import textwrap
+
+        def lambda_handler(event, context):
+            landing_page_url = "https://" + re.sub(r"^(https*://)", "", event["landing_page_url"])
+            dashboard_url = "https://" + re.sub(r"^(https*://)", "", event["dashboard_url"])
+
+            client = boto3.client("sns")
+            response = client.publish(
+                TopicArn=os.environ["TOPIC_ARN"],
+                Subject="Your Amazon SFS Dashboard is Ready!",
+                Message=textwrap.dedent(f'''
+                Congratulations!
+                
+                Amazon SFS has been successfully deployed into your AWS account.
+                
+                Visit the landing page below to get started:
+                ‣ {landing_page_url}
+                
+                Sincerely,
+                The Amazon SFS Team
+                ‣ https://github.com/aws-samples/simple-forecast-solution
+                '''))
+            
+            return response
+        """)
+
+        return lambda_.Code.from_inline(inline_code_str)
+
+    def make_afc_email_inline_code(self):
+        """This is the lambda that sends the notification email to the user once
+        the dashboard is deployed, it contains the URL to the landing page
+        sagemaker notebook.
+
+        """
+
+        inline_code_str = dedent("""
+        import os
+        import re
+        import json
+        import boto3
+
+        from textwrap import dedent
+
+        def lambda_handler(event, context):
+            payload = event["input"]["Payload"]
+
+            # get s3 location of the exports
+            afc_client = boto3.client("forecast")
+            resp = afc_client.describe_forecast_export_job(
+                ForecastExportJobArn=payload["ForecastExportJobArn"])
+            console_url = payload["AwsS3ConsoleUrl"]
+
+            client = boto3.client("sns")
+
+            response = client.publish(
+                TopicArn=os.environ["TOPIC_ARN"],
+                Subject="[Amazon SFA] Your ML Forecast job has completed!",
+                Message=dedent(f'''
+                Hi!
+
+                Your SFA Machine Learning Forecast job has completed.
+
+                You can then download the forecast files using the "Export" button in
+                the "ML Forecasting" section of the report via the dashboard.
+
+                Sincerely,
+                The Amazon SFA Team
+                ‣ https://github.com/aws-samples/simple-forecast-solution
+                '''))
+            return response
+        """)
+
+        return lambda_.Code.from_inline(inline_code_str)
