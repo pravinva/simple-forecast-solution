@@ -13,10 +13,12 @@ ROOT_DIR:=$(shell dirname $(realpath $(lastword $(MAKEFILE_LIST))))
 EMAIL:=
 INSTANCE_TYPE:=ml.t2.medium
 
+.PHONY: ./cdk/bootstrap.py
+
 # Deploy the SFS stack
 deploy: SfsStack
 
-template.yaml:
+template.yaml: ./cdk/bootstrap.py
 	( cd cdk ; cdk synth SfsBootstrapStack ) > $@
 
 destroy:
