@@ -3,6 +3,7 @@ import contextlib
 import statsmodels.api as sm
 import pandas as pd
 import numpy as np
+import time
 
 from collections import OrderedDict
 from concurrent import futures
@@ -979,6 +980,8 @@ def run_cv_select(df, horiz, freq, obj_metric="smape_mean", cv_stride=1,
     functions for a single timeseries (`y`) and horizon length (`horiz`).
 
     """
+
+    start = time.time()
     
     if horiz is None:
         horiz = int(df.iloc[0]["horiz"])
@@ -994,6 +997,9 @@ def run_cv_select(df, horiz, freq, obj_metric="smape_mean", cv_stride=1,
     grid = create_model_grid()
 
     results = [partial(run_cv, cfg, df, horiz, freq, cv_stride)() for cfg in grid]
+
+    print(f"LAMBDA COMPLETE: {time.time()-start:.2f} sec")
+
     df_results = pd.concat(results)
     
     assert obj_metric in df_results

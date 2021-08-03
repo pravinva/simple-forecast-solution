@@ -161,7 +161,7 @@ def display_progress(wait_for, desc=None):
         pbar.update(diff)
         prev_n_done = n_done
         n_done = sum(f.done() for f in wait_for)
-        time.sleep(0.5)
+        time.sleep(0.25)
 
     diff = n_done - prev_n_done
     pbar.update(diff)
@@ -169,26 +169,31 @@ def display_progress(wait_for, desc=None):
     return
 
 
-def run_lambdamap(df, horiz, freq):
+def run_lambdamap(df, horiz, freq, max_lambdas=1000):
     """
     """
 
     payloads = []
 
     freq = FREQ_MAP_PD[freq]
-    df2 = load_data(df, freq)
+
+    # resample the dataset to the forecast frequency before running
+    # lambdamap
+    with st.spinner(f"⏳ Resampling data to _{FREQ_MAP_LONG[freq]}_ frequency .."):
+        df2 = resample(df, freq)
 
     groups = df2.groupby(GROUP_COLS, as_index=False, sort=False)
 
-    # generate payload
-    for _, dd in groups:
-        payloads.append(
-            {"args": (dd, horiz, freq),
-             "kwargs": {"obj_metric": "smape_mean", "cv_stride": 2}})
+    with st.spinner(f":rocket: Launching forecasts via AWS Lambda (λ)..."):
+        # generate payload
+        for _, dd in groups:
+            payloads.append(
+                {"args": (dd, horiz, freq),
+                 "kwargs": {"obj_metric": "smape_mean", "cv_stride": 4}})
 
-    executor = StreamlitExecutor(max_workers=min(1000, len(payloads)),
-                                 lambda_arn=LAMBDAMAP_FUNC)
-    wait_for = executor.map(run_cv_select, payloads)
+        executor = StreamlitExecutor(max_workers=min(max_lambdas, len(payloads)),
+                                     lambda_arn=LAMBDAMAP_FUNC)
+        wait_for = executor.map(run_cv_select, payloads)
 
     return wait_for
 
@@ -494,6 +499,9 @@ def panel_create_report(expanded=True):
                     state.report["data"]["path"] = fn
                     state.report["data"]["sz_bytes"] = os.path.getsize(fn)
                     state.report["data"]["freq"] = freq
+
+                    # impute missing dates from the validated dataframe, this
+                    # will fill in the missing timestamps with null demand values
                     state.report["data"]["df"] = \
                         load_data(df, impute_freq=state.report["data"]["freq"])
                     state.report["data"]["is_valid"] = True
@@ -721,26 +729,18 @@ def panel_launch():
             freq_in = state.report["data"]["freq"]
             freq_out = state.report["sfs"]["freq"]
 
-#           if backend == "lambdamap":
-#               emoji = "λ"
-#           elif backend == "local":
-#               emoji = ":computer:"
-#           else:
-#               raise NotImplementedError
-
-            with st.spinner(f":rocket: Launching forecasts ..."):
-                if backend == "local":
-                    wait_for = \
-                        run_pipeline(df, freq_in, freq_out, obj_metric="smape_mean",
-                            cv_stride=2, backend="futures", horiz=horiz)
-                elif backend == "lambdamap":
-                    wait_for = run_lambdamap(df, horiz, freq)
-                else:
-                    raise NotImplementedError
+            if backend == "local":
+                wait_for = \
+                    run_pipeline(df, freq_in, freq_out, obj_metric="smape_mean",
+                        cv_stride=2, backend="futures", horiz=horiz)
+            elif backend == "lambdamap":
+                wait_for = run_lambdamap(df, horiz, freq_out)
+            else:
+                raise NotImplementedError
 
             display_progress(wait_for, "🔥 Generating forecasts")
 
-            with st.spinner(":hourglass_flowing_sand: Calculating results ..."):
+            with st.spinner("⏳ Calculating results ..."):
                 raw_results = [f.result() for f in futures.as_completed(wait_for)]
 
                 # generate the results and predictions as dataframes
