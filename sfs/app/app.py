@@ -189,7 +189,7 @@ def run_lambdamap(df, horiz, freq, max_lambdas=1000):
         for _, dd in groups:
             payloads.append(
                 {"args": (dd, horiz, freq),
-                 "kwargs": {"obj_metric": "smape_mean", "cv_stride": 4}})
+                 "kwargs": {"obj_metric": "smape_mean", "cv_stride": 2}})
 
         executor = StreamlitExecutor(max_workers=min(max_lambdas, len(payloads)),
                                      lambda_arn=LAMBDAMAP_FUNC)
@@ -701,6 +701,7 @@ def panel_launch():
         _frequency_ is then generated using the each individual timeseries' best model.
         This process typically completes at a rate of over 1,000 timeseries/min.
         """)
+
         with st.form("sfs_form"):
             with st.beta_container():
                 _cols = st.beta_columns(3)

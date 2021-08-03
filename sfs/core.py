@@ -945,7 +945,7 @@ def run_cv(cfg, df, horiz, freq, cv_stride=1):
     
     # keep the backtest forecast time indices
     Yts = sliding_window_view(ts[1:], cv_horiz)[::cv_stride,:]
-    
+
     assert Yts.shape == Y.shape
     assert Yts.shape == Ycv.shape
     assert not np.any(np.isnan(Ycv))
@@ -964,13 +964,6 @@ def run_cv(cfg, df, horiz, freq, cv_stride=1):
     # generate the final forecast (1-dim)
     df_results["yhat"] = [func(y, horiz, freq)]
     
-    # store each of the cv predictions and actuals, flattened for simplicity
-    #df_cv_results = pd.DataFrame()
-    #df_cv_results["y_cv"] = [np.hstack(Y)]
-    #df_cv_results["yp_cv"] = [np.hstack(Ycv)]
-    
-    #df_cv_results.sort_index(inplace=True)
-
     return df_results
 
 
@@ -981,8 +974,6 @@ def run_cv_select(df, horiz, freq, obj_metric="smape_mean", cv_stride=1,
 
     """
 
-    start = time.time()
-    
     if horiz is None:
         horiz = int(df.iloc[0]["horiz"])
         
@@ -995,10 +986,7 @@ def run_cv_select(df, horiz, freq, obj_metric="smape_mean", cv_stride=1,
 
     # these are the model configurations to run
     grid = create_model_grid()
-
     results = [partial(run_cv, cfg, df, horiz, freq, cv_stride)() for cfg in grid]
-
-    print(f"LAMBDA COMPLETE: {time.time()-start:.2f} sec")
 
     df_results = pd.concat(results)
     

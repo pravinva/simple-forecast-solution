@@ -123,6 +123,7 @@ class BootstrapStack(cdk.Stack):
             cdk deploy --require-approval never \
                 --context stack_name=SfsLambdaMapStack \
                 --context function_name=SfsLambdaMapFunction \
+                --context memory_size=256 \
                 --context extra_cmds='git clone https://github.com/aws-samples/simple-forecast-solution.git ; cd ./simple-forecast-solution/ ; git checkout develop ; pip install -e .'
 
             git clone https://github.com/aws-samples/simple-forecast-solution.git
