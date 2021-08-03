@@ -449,7 +449,8 @@ def panel_create_report(expanded=True):
         btn_refresh_files = st.button("Refresh Files", help="Refresh the _File_ selector with recently uploaded files.")
 
         with st.form("create_report_form"):
-            report_name = st.text_input("Report Name (optional)", help="You may optionally give this report a name, otherwise one will be automatically generated.")
+            report_name = st.text_input("Report Name (optional)",
+                help="You may optionally give this report a name, otherwise one will be automatically generated.")
 
             _cols = st.beta_columns([3,1])
 
@@ -691,7 +692,7 @@ def panel_launch():
     if df is None or df_health is None:
         return
 
-    st.header("Statistical Forecasting")
+    st.header("Statistical Forecasts")
 
     with st.beta_expander("🚀 Launch", expanded=True):
         st.write(f"""Step 3 – Generate forecasts by training and evaluating 75+
@@ -1162,8 +1163,11 @@ def panel_downloads():
         sfs_forecasts_s3_path = state.report["sfs"].get("forecasts_s3_path", None)
         sfs_backtests_s3_path = state.report["sfs"].get("backtests_s3_path", None)
 
+        afc_forecasts_s3_path = state.report["afc"].get("forecasts_s3_path", None)
+        afc_backtests_s3_path = state.report["afc"].get("backtests_s3_path", None)
+
         export_forecasts_btn = \
-            st.button("Export", key="sfs_export_forecast_btn", help="Export the forecast and backtest files as `.csv.gz` files.")
+            st.button("Export Statistical Forecasts", key="sfs_export_forecast_btn")
 
         if export_forecasts_btn:
             start = time.time()
@@ -1184,11 +1188,12 @@ def panel_downloads():
                     state["report"]["sfs"]["forecasts_s3_path"] = \
                         sfs_forecasts_s3_path
                 else:
-                    # reuse the previously exported forecast file
-                    #st.info("Using previously exported forecast file")
                     pass
 
                 forecasts_signed_url = create_presigned_url(sfs_forecasts_s3_path)
+
+            st.markdown("#### Statistical Forecasts")
+            st.markdown("####")
 
             st.info(textwrap.dedent(f"""
             Download the forecasts file [here]({forecasts_signed_url})  
@@ -1209,42 +1214,105 @@ def panel_downloads():
                     state["report"]["sfs"]["backtests_s3_path"] = \
                         sfs_backtests_s3_path
                 else:
-                    # reuse the previously exported backtest file
-                    #st.info("Using previously exported backtests file")
                     pass
 
                 backtests_signed_url = create_presigned_url(sfs_backtests_s3_path)
 
             st.info(textwrap.dedent(f"""
-            Download the backtests file [here]({backtests_signed_url})  
+            Download the forecast backtests file [here]({backtests_signed_url})  
             `(completed in {format_timespan(time.time()-start)})`.
             """))
 
-#               df_backtests.to_csv(backtests_path, compression="gzip", index=False)
-#                   st.info(textwrap.dedent(f"""
-#                   Download the forecasts file [here]({forecasts_signed_url}).  
+        export_afc_forecasts_btn = \
+            st.button("Export Machine Learning Forecasts",
+                      key="afc_export_forecast_btn")
 
-#           st.write(forecasts_path)
-#           st.write(backtests_path)
-#               if False:
-#                   now_str = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
-#                   basename = os.path.basename(state["report"]["data"]["path"])
-#                   s3_sfs_export_path = state["report"]["sfs"]["s3_sfs_export_path"]
-#                   s3_forecasts_path = f'{s3_sfs_export_path}/{basename}_{now_str}_sfs-forecast.csv.gz'
+        if export_afc_forecasts_btn:
+            s3_afc_export_path = state["report"]["afc"]["s3_afc_export_path"]
 
-#                   wr.s3.to_csv(df_preds, s3_forecasts_path, compression="gzip", index=False)
+            if state.report["afc"].get("status_json_s3_path", None):
+                st.markdown("#### Machine Learning Forecasts")
+                st.markdown("####")
 
-#                   forecasts_signed_url = create_presigned_url(s3_forecasts_path)
+                status_dict = parse_s3_json(state.report["afc"]["status_json_s3_path"])
+                prefix = status_dict["prefix"]
+                s3_export_path = status_dict["s3_export_path"]
 
-#                   s3_backtests_path = f'{s3_sfs_export_path}/{basename}_{now_str}_sfs-backtests.csv.gz'
+                # read the raw amazon forecast files from here
+                preds_s3_prefix = \
+                    f'{s3_export_path}/{prefix}/{prefix}_processed.csv'
+                results_s3_prefix = \
+                    f'{s3_export_path}/{prefix}/accuracy-metrics-values/Accuracy_{prefix}_*.csv'
 
-#                   df_backtests = make_df_backtests(df_results)
-#                   wr.s3.to_csv(df_backtests, s3_backtests_path, compression="gzip", index=False)
-#                   backtests_signed_url = create_presigned_url(s3_backtests_path)
+                start = time.time()
+
+                if afc_forecasts_s3_path is None:
+                    try:
+                        df_preds = wr.s3.read_csv(preds_s3_prefix,
+                            dtype={"channel": str, "family": str, "item_id": str})
+                        df_preds["type"] = "fcast"
+
+                        df_preds = df_preds.append(
+                            load_data(df, FREQ_MAP_PD[state.report["afc"]["freq"]])
+                                .reset_index()
+                                .rename({"index": "timestamp"}, axis=1)
+                                .assign(type='actual'))
+
+                        state.report["afc"]["df_preds"] = df_preds
+                        state.report["afc"]["preds_s3_prefix"] = preds_s3_prefix
+
+                        now_str = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+                        basename = os.path.basename(state["report"]["data"]["path"])
+
+                        afc_forecasts_path = \
+                            f"{s3_afc_export_path}/{basename}_{now_str}_afc-forecasts.csv.gz"
+
+                        wr.s3.to_csv(df_preds, afc_forecasts_path, compression="gzip", index=False)
+                        state["report"]["afc"]["forecasts_s3_path"] = afc_forecasts_path
+                    except NoFilesFound:
+                        pass
+                else:
+                    pass
+
+                forecasts_signed_url = create_presigned_url(afc_forecasts_s3_path)
+
+                st.info(textwrap.dedent(f"""
+                Download the forecasts file [here]({forecasts_signed_url})  
+                `(completed in {format_timespan(time.time()-start)})`.
+                """))
+
+                start = time.time()
+
+                if afc_backtests_s3_path is None:
+                    try:
+                        df_results = wr.s3.read_csv(results_s3_prefix,
+                            dtype={"channel": str, "family": str, "item_id": str})
+                        df_results[["channel", "family", "item_id"]] = \
+                            df_results["item_id"].str.split("@@", expand=True)
+                        state.report["afc"]["df_results"] = df_results
+                        state.report["afc"]["results_s3_prefix"] = results_s3_prefix
+
+                        now_str = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+                        basename = os.path.basename(state["report"]["data"]["path"])
+
+                        afc_backtests_s3_path = \
+                            f"{s3_afc_export_path}/{basename}_{now_str}_afc-backtests.csv.gz"
+
+                        wr.s3.to_csv(df_results, afc_backtests_s3_path, compression="gzip", index=False)
+                        state["report"]["afc"]["backtests_s3_path"] = afc_backtests_s3_path
+                    except NoFilesFound:
+                        pass
+                else:
+                    pass
+
+                backtests_signed_url = create_presigned_url(afc_backtests_s3_path)
+
+                st.info(textwrap.dedent(f"""
+                Download the forecast backtests file [here]({backtests_signed_url})  
+                `(completed in {format_timespan(time.time()-start)})`.  
+                """))
 
 
-#                   plot_duration = time.time() - start
-#                   st.text(f"(completed in {format_timespan(plot_duration)})")
 
     return
 
@@ -1276,9 +1344,10 @@ def panel_ml_launch():
     if df is None:
         return
 
-    st.header(":construction: ML Forecasting :construction:")
+    st.header("Machine Learning Forecasts")
 
     with st.beta_expander("🚀 Launch"):
+        st.write("_Optional_ – Launch machine learning forecasts using the [Amazon Forecast](https://aws.amazon.com/forecast/) managed service.")
         with st.form("ml_form"):
             _cols = st.beta_columns(3)
 
@@ -1298,7 +1367,7 @@ def panel_ml_launch():
 
         # Launch Amazon Forecast job
         if ml_form_button:
-            with st.spinner("Launching ML forecasting job ..."):
+            with st.spinner("🚀 Launching ML forecasting job ..."):
                 state.report["afc"]["horiz"] = horiz
                 state.report["afc"]["freq"] = freq
 
@@ -1310,14 +1379,9 @@ def panel_ml_launch():
                 state.report["afc"]["prefix"] = prefix
 
         execution_arn = state.report["afc"].get("execution_arn", None)
-        ml_refresh_job_button = st.button("Refresh Job Status")
 
-        if ml_refresh_job_button:
-            if execution_arn is None:
-                st.warning("Job not yet launched")
-                return
-
-            with st.spinner("Checking job status ..."):
+        if execution_arn is not None:
+            with st.spinner("⏳ Checking job status ..."):
                 sfn_status, status_dict = refresh_ml_state_machine_status()
                 sfn_state = status_dict["PROGRESS"]["state"]
 
@@ -1331,43 +1395,16 @@ def panel_ml_launch():
                 **AWS Console:** [view](https://console.aws.amazon.com/states/home#/executions/details/{execution_arn})
                 """))
 
+
+            st.write(state["report"])
+
+            _cols = st.beta_columns([2,0.37])
+
+            with _cols[0]:
+                ml_refresh_job_button = st.button("Refresh Job Status")
+
+            with _cols[1]:
                 ml_stop_button = st.button("Stop Job")
-
-                if state.report["afc"].get("status_json_s3_path", None):
-                    status_dict = parse_s3_json(state.report["afc"]["status_json_s3_path"])
-                    prefix = status_dict["prefix"]
-                    s3_export_path = status_dict["s3_export_path"]
-
-                    preds_s3_prefix = \
-                        f'{s3_export_path}/{prefix}/{prefix}_processed.csv'
-                    results_s3_prefix = \
-                        f'{s3_export_path}/{prefix}/accuracy-metrics-values/Accuracy_{prefix}_*.csv'
-
-                    try:
-                        df_results = wr.s3.read_csv(results_s3_prefix,
-                            dtype={"channel": str, "family": str, "item_id": str})
-                        df_results[["channel", "family", "item_id"]] = \
-                            df_results["item_id"].str.split("@@", expand=True)
-                        state.report["afc"]["df_results"] = df_results
-                        state.report["afc"]["results_s3_prefix"] = results_s3_prefix
-                    except NoFilesFound:
-                        st.warning("The forecast results file is not yet ready.")
-
-                    try:
-                        df_preds = wr.s3.read_csv(preds_s3_prefix,
-                            dtype={"channel": str, "family": str, "item_id": str})
-                        df_preds["type"] = "fcast"
-
-                        df_preds = df_preds.append(
-                            load_data(df, FREQ_MAP_PD[state.report["afc"]["freq"]])
-                                .reset_index()
-                                .rename({"index": "timestamp"}, axis=1)
-                                .assign(type='actual'))
-
-                        state.report["afc"]["df_preds"] = df_preds
-                        state.report["afc"]["preds_s3_prefix"] = preds_s3_prefix
-                    except NoFilesFound:
-                        st.warning("The forecast predictions file is not yet ready.")
 
             if ml_stop_button:
                 sfn_client = boto3.client("stepfunctions")
@@ -1665,6 +1702,14 @@ if __name__ == "__main__":
     if "s3_sfs_reports_path" not in state["report"]:
         state["report"]["sfs"]["s3_sfs_reports_path"] = \
             f's3://{state["report"]["s3_bucket"]}/sfs-reports'
+
+    if "s3_afc_export_path" not in state["report"]:
+        state["report"]["afc"]["s3_afc_export_path"] = \
+            f's3://{state["report"]["s3_bucket"]}/afc-exports'
+
+    if "s3_afc_reports_path" not in state["report"]:
+        state["report"]["afc"]["s3_afc_reports_path"] = \
+            f's3://{state["report"]["s3_bucket"]}/afc-reports'
 
     #st.write(state["report"])
 

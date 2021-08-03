@@ -141,6 +141,9 @@ def create_predictor_handler(event, context):
         #AlgorithmArn=AFC_ALGORITHM_ARN, # TODO: delete this when ready
         PerformAutoML=True, # TODO: Uncomment this when ready
         #PerformHPO=False,
+        EvaluationParameters={
+            "NumberOfBacktestWindows": 5
+        },
         InputDataConfig={
             "DatasetGroupArn": AFC_DATASET_GROUP_ARN
         },
