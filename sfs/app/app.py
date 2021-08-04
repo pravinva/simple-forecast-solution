@@ -1610,7 +1610,7 @@ def run_ml_state_machine():
 
 def refresh_ml_state_machine_status():
     """
-    ""
+    """
     sfn_client = boto3.client("stepfunctions")
     resp = sfn_client.describe_execution(
         executionArn=state.report["afc"]["execution_arn"])
