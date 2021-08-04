@@ -169,6 +169,17 @@ def display_progress(wait_for, desc=None):
     return
 
 
+def get_df_resampled(freq):
+    df2 = state["report"]["data"].get("df2", None)
+
+    if df2 is None:
+        df2 = resample(df, freq)
+
+    state["report"]["data"]["df2"] = df2
+
+    return df2
+
+
 def run_lambdamap(df, horiz, freq, max_lambdas=1000):
     """
     """
@@ -179,7 +190,7 @@ def run_lambdamap(df, horiz, freq, max_lambdas=1000):
 
     # resample the dataset to the forecast frequency before running
     # lambdamap
-    df2 = resample(df, freq)
+    df2 = get_df_resampled()
 
     groups = df2.groupby(GROUP_COLS, as_index=False, sort=False)
 
@@ -1100,7 +1111,6 @@ def panel_visualization():
             fig.add_trace(go.Scatter(x=df_backtest.index, y=df_backtest.yp, mode="lines",
                 name="backtest", line_dash="dot", line_color="black"))
                 
-
     #       fig.update_layout(
     #           xaxis={
     #               "showgrid": True,
@@ -1140,6 +1150,57 @@ def panel_visualization():
         st.text(f"(completed in {format_timespan(plot_duration)})")
 
     return
+
+
+def download_afc_files():
+    """
+    """
+
+    df = state["report"]["data"]["df"]
+
+    status_dict = parse_s3_json(state.report["afc"]["status_json_s3_path"])
+    s3_export_path = status_dict["s3_export_path"]
+    prefix = status_dict["prefix"]
+
+    preds_s3_prefix = \
+        f'{s3_export_path}/{prefix}/{prefix}_processed.csv'
+    results_s3_prefix = \
+        f'{s3_export_path}/{prefix}/accuracy-metrics-values/Accuracy_{prefix}_*.csv'
+    backtests_s3_prefix = \
+        f'{s3_export_path}/{prefix}/forecasted-values/Forecasts_{prefix}_BacktestExportJob_*.csv'
+
+    df_preds = wr.s3.read_csv(preds_s3_prefix,
+        dtype={"channel": str, "family": str, "item_id": str})
+    df_preds["type"] = "fcast"
+
+    freq = FREQ_MAP_PD[state.report["afc"]["freq"]]
+
+    df_preds = df_preds.append(
+            resample(df, freq)
+                .reset_index()
+                .rename({"index": "timestamp"}, axis=1)
+                .assign(type='actual'))
+
+    df_results = wr.s3.read_csv(results_s3_prefix,
+        dtype={"channel": str, "family": str, "item_id": str})
+
+    df_results[["channel", "family", "item_id"]] = \
+        df_results["item_id"].str.split("@@", expand=True)
+
+    df_backtests = \
+        wr.s3.read_csv(backtests_s3_prefix)
+
+    df_backtests[["channel", "family", "item_id"]] = \
+        df_backtests["item_id"].str.split("@@", expand=True)
+    df_backtests["timestamp"] = pd.DatetimeIndex(df_backtests["backtestwindow_end_time"])
+    df_backtests["demand"] = df_backtests["p50"]
+
+    df_backtests = df_backtests[["timestamp", "channel", "family", "item_id",
+                                 "demand", "p10", "p90", "target_value"]]
+    df_backtests.sort_values(by=["channel", "family", "item_id", "timestamp"],
+                             inplace=True)
+
+    return df_preds, df_results, df_backtests
 
 
 def panel_downloads():
@@ -1222,11 +1283,17 @@ def panel_downloads():
             `(completed in {format_timespan(time.time()-start)})`.
             """))
 
+        df_afc_preds = state["report"]["afc"].get("df_preds", None)
+        df_afc_results = state["report"]["afc"].get("df_results", None)
+
         export_afc_forecasts_btn = \
             st.button("Export Machine Learning Forecasts",
                       key="afc_export_forecast_btn")
 
         if export_afc_forecasts_btn:
+            if df_afc_preds is None or df_afc_results is None:
+                st.info("Machine learning forecasts are not yet ready.")
+
             s3_afc_export_path = state["report"]["afc"]["s3_afc_export_path"]
 
             if state.report["afc"].get("status_json_s3_path", None):
@@ -1242,24 +1309,11 @@ def panel_downloads():
                     f'{s3_export_path}/{prefix}/{prefix}_processed.csv'
                 results_s3_prefix = \
                     f'{s3_export_path}/{prefix}/accuracy-metrics-values/Accuracy_{prefix}_*.csv'
-
                 start = time.time()
 
                 if afc_forecasts_s3_path is None:
                     try:
-                        df_preds = wr.s3.read_csv(preds_s3_prefix,
-                            dtype={"channel": str, "family": str, "item_id": str})
-                        df_preds["type"] = "fcast"
-
-                        df_preds = df_preds.append(
-                            load_data(df, FREQ_MAP_PD[state.report["afc"]["freq"]])
-                                .reset_index()
-                                .rename({"index": "timestamp"}, axis=1)
-                                .assign(type='actual'))
-
-                        state.report["afc"]["df_preds"] = df_preds
-                        state.report["afc"]["preds_s3_prefix"] = preds_s3_prefix
-
+                        df_preds = state["report"]["afc"]["df_preds"]
                         now_str = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
                         basename = os.path.basename(state["report"]["data"]["path"])
 
@@ -1284,12 +1338,7 @@ def panel_downloads():
 
                 if afc_backtests_s3_path is None:
                     try:
-                        df_results = wr.s3.read_csv(results_s3_prefix,
-                            dtype={"channel": str, "family": str, "item_id": str})
-                        df_results[["channel", "family", "item_id"]] = \
-                            df_results["item_id"].str.split("@@", expand=True)
-                        state.report["afc"]["df_results"] = df_results
-                        state.report["afc"]["results_s3_prefix"] = results_s3_prefix
+                        df_results = state["report"]["afc"]["df_results"]
 
                         now_str = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
                         basename = os.path.basename(state["report"]["data"]["path"])
@@ -1402,6 +1451,15 @@ def panel_ml_launch():
                 **AWS Console:** [view](https://console.aws.amazon.com/states/home#/executions/details/{execution_arn})
                 """))
 
+            if sfn_status == "SUCCEEDED":
+                # download the results
+                with st.spinner("Loading ML forecasts and results..."):
+                    df_preds, df_results, df_backtests = download_afc_files()
+
+                    state["report"]["afc"]["df_preds"] = df_preds
+                    state["report"]["afc"]["df_results"] = df_results
+                    state["report"]["afc"]["df_backtests"] = df_backtests
+
             _cols = st.beta_columns([2,0.485])
 
             with _cols[1]:
@@ -1427,7 +1485,6 @@ def panel_ml_forecast_summary():
 
     with st.beta_expander("Forecast Summary", expanded=False):
         ml_acc = 100 - np.nanmean(df_results.query("backtest_window == 'Summary'")["WAPE"].clip(0,100))
-
         _cols = st.beta_columns(3)
 
         with _cols[0]:
@@ -1452,6 +1509,7 @@ def panel_ml_visualization():
     df = state.report["data"].get("df", None)
     df_ml_results = state.report["afc"].get("df_results", None)
     df_ml_preds = state.report["afc"].get("df_preds", None)
+    df_ml_backtests = state.report["afc"].get("df_backtests", None)
 
     if df is None or df_ml_results is None or df_ml_preds is None:
         return
@@ -1495,8 +1553,13 @@ def panel_ml_visualization():
             make_mask(df_ml_results, channel_choice, family_choice, item_id_choice)
         pred_mask = \
             make_mask(df_ml_preds, channel_choice, family_choice, item_id_choice)
+        backtest_mask = \
+            make_mask(df_ml_backtests, channel_choice, family_choice, item_id_choice)
 
         df_plot = df_ml_preds[pred_mask]
+        _df_backtests = df_ml_backtests[backtest_mask]
+
+        st.write(_df_backtests)
 
         if len(df_plot) > 0:
             # display the line chart
@@ -1513,10 +1576,15 @@ def panel_ml_visualization():
                 x=y_ts, y=y, mode='lines+markers', name="actual",
                 fill="tozeroy", line={"width":3}, marker=dict(size=4)
             ))
+
             fig.add_trace(go.Scatter(
-                x=yp_ts, y=yp, mode='lines+markers', name="forecast",
+                x=yp_ts, y=np.round(yp, 0), mode='lines+markers', name="forecast",
                 fill="tozeroy", marker=dict(size=4)
             ))
+
+            fig.add_trace(go.Scatter(x=_df_backtests["timestamp"],
+                y=np.round(_df_backtests.demand, 0), mode="lines",
+                name="backtest", line_dash="dot", line_color="black"))
             fig.update_layout(
                 margin={"t": 0, "b": 0, "r": 0, "l": 0},
                 height=250,
@@ -1551,9 +1619,18 @@ def run_ml_state_machine():
 
     assert(df is not None)
 
-    # state.df is already resampled to same frequency as the forecast freq.
-    AFC_DATASET_FREQUENCY = AFC_FORECAST_FREQUENCY
+    data_freq = state.report["data"]["freq"]
 
+    if data_freq in ("D",):
+        pass
+    elif data_freq in ("W", "W-MON",):
+        data_freq = "W"
+    elif data_freq in ("M", "MS",):
+        data_freq = "M"
+    else:
+        raise NotImplementedError
+
+    # state.df is already resampled to same frequency as the forecast freq.
     state_machine_arn = None
 
     # generate a unique prefix for the Amazon Forecast resources
@@ -1594,7 +1671,7 @@ def run_ml_state_machine():
             stateMachineArn=state_machine_arn,
             input=json.dumps({
                 "prefix": prefix,
-                "data_freq": AFC_DATASET_FREQUENCY,
+                "data_freq": data_freq,
                 "horiz": AFC_FORECAST_HORIZON,
                 "freq": AFC_FORECAST_FREQUENCY,
                 "s3_path": s3_input_path,
@@ -1757,3 +1834,5 @@ if __name__ == "__main__":
                 save_report(report_fn)
 
     panel_save_report()
+
+    st.write(state["report"]["afc"])

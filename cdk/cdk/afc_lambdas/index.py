@@ -36,7 +36,7 @@ def prepare_handler(event, context):
     """
 
     prefix = event["input"]["prefix"]
-    data_frq = event["input"]["data_freq"]
+    data_freq = event["input"]["data_freq"]
     horiz = int(event["input"]["horiz"])
     freq = event["input"]["freq"]
     s3_path = event["input"]["s3_path"]
@@ -52,7 +52,7 @@ def prepare_handler(event, context):
     AFC_DATASET_DOMAIN = "RETAIL"
     AFC_DATASET_GROUP_NAME = f"{prefix}_DatasetGroup"
     AFC_DATASET_NAME = f"{prefix}_Dataset"
-    AFC_DATASET_FREQUENCY = freq # "Y|M|W|D|H" (input frequency)
+    AFC_DATASET_FREQUENCY = data_freq # "Y|M|W|D|H" (input frequency)
     AFC_DATASET_TYPE = "TARGET_TIME_SERIES"
     AFC_ROLE_ARN = os.environ["AFC_ROLE_ARN"]
     AFC_INPUT_S3_PATH = s3_path
@@ -79,7 +79,7 @@ def prepare_handler(event, context):
         Domain=AFC_DATASET_DOMAIN,
         DatasetType=AFC_DATASET_TYPE,
         DatasetName=AFC_DATASET_NAME,
-        DataFrequency=AFC_DATASET_FREQUENCY,
+        DataFrequency=data_freq,
         Schema=ts_schema
     )
 
