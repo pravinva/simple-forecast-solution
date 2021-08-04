@@ -22,7 +22,6 @@ OBJ_METRICS = ["smape_mean"]
 TAIL_LEN = {"D": 56, "W": 12, "W-MON": 12, "M": 3, "MS": 3}
 DC_PERIODS = {"D": 365, "W": 7, "W-MON": 7, "M": 12, "MS": 12}
 
-
 #
 # Forecast functions
 #
@@ -40,6 +39,7 @@ def forecaster(func):
         seasonal = kwargs.get("seasonal", False)
         trim_zeros = kwargs.get("trim_zeros", False)
         use_log = kwargs.get("use_log", False)
+        dc = kwargs.get("dc", None)
 
         if trim_zeros:
             y = np.trim_zeros(y, trim="f")
@@ -64,15 +64,12 @@ def forecaster(func):
 
             kwargs.pop("seasonal")
 
-            try:
-                dc = sm.tsa.seasonal.seasonal_decompose(y, period=period, two_sided=False)
-                yp_seasonal = fourier(dc.seasonal, horiz, freq, seasonal=False)
-                yp_trend = func(np.nan_to_num(dc.trend), horiz, **kwargs)
-                yp_resid = func(np.nan_to_num(dc.resid), horiz, **kwargs)
-                yp = yp_seasonal + yp_trend + yp_resid
-            except:
-                yp = np.zeros(horiz)
-
+            resid, trend, yp_seasonal = dc
+            #dc = sm.tsa.seasonal.seasonal_decompose(y, period=period, two_sided=False)
+            #yp_seasonal = fourier(seas, horiz, freq, seasonal=False)
+            yp_trend = func(np.nan_to_num(trend), horiz, **kwargs)
+            yp_resid = func(np.nan_to_num(resid), horiz, **kwargs)
+            yp = yp_seasonal + yp_trend + yp_resid
         else:
             # ensure the input values are not null
             yp = func(y, horiz, **kwargs)
@@ -137,25 +134,8 @@ def holt(y, horiz, **kwargs):
 
     alpha = kwargs.get("alpha", 0.2)
     beta = kwargs.get("beta", 0.2)
-#   local_model = kwargs.get("local_model", False)
-#   use_log = kwargs.get("use_log", False)
-
-#   if len(y) == 1:
-#       y = np.append(y, 0)
-
-#   if len(y) > 8:
-#       y = np.trim_zeros(y, trim ='f')
-
-#   if local_model:
-#       y = y[-8:]
-
-#   if use_log:
-#       y = np.log1p(y)
-
     extra_periods = horiz-1
     
-#   y = np.log1p(y)
-
     # Initialization
     f = [np.nan] # First forecast is set to null value
     a = [y[0]] # First level defined as the first demand point
@@ -882,7 +862,7 @@ def create_model_grid():
     return grid
 
 
-def run_cv(cfg, df, horiz, freq, cv_stride=1, bt_steps=None):
+def run_cv(cfg, df, horiz, freq, cv_stride=1, cv_periods=None, dc_dict=None):
     """Run a sliding-window temporal cross-validation (aka backtest) using a 
     given forecasting function (`func`).
     
@@ -913,7 +893,7 @@ def run_cv(cfg, df, horiz, freq, cv_stride=1, bt_steps=None):
         ts = np.append(
             pd.date_range(end=df.index[0], freq=freq, periods=diff+1), df.index)
 
-    if bt_steps is None:
+    if cv_periods is None:
         if freq[0] == "W":
             cv_start = max(1, y.shape[0] - 26)
         elif freq[0] == "M":
@@ -921,7 +901,7 @@ def run_cv(cfg, df, horiz, freq, cv_stride=1, bt_steps=None):
         else:
             raise NotImplementedError
     else:
-        cv_start = max(1, y.shape[0] - bt_steps) 
+        cv_start = max(1, y.shape[0] - cv_periods) 
         
     # sliding window horizon actuals
     Y = sliding_window_view(y[cv_start:], cv_horiz)[::cv_stride,:]
@@ -936,7 +916,7 @@ def run_cv(cfg, df, horiz, freq, cv_stride=1, bt_steps=None):
     # |  y                    | horiz   |
 
     for i in range(cv_start, len(y)-cv_horiz+1, cv_stride):
-        yp = func(y[:i], cv_horiz, freq)
+        yp = func(y[:i], cv_horiz, freq, dc=dc_dict[i])
         Ycv.append(yp)
 
     # keep the backtest forecasts at each cv_stride
@@ -961,13 +941,13 @@ def run_cv(cfg, df, horiz, freq, cv_stride=1, bt_steps=None):
     df_results["ts_cv"] =  [Yts]
 
     # generate the final forecast (1-dim)
-    df_results["yhat"] = [func(y, horiz, freq)]
+    df_results["yhat"] = [func(y, horiz, freq, dc=dc_dict[len(y)-1])]
     
     return df_results
 
 
 def run_cv_select(df, horiz, freq, obj_metric="smape_mean", cv_stride=1,
-    bt_steps=None, show_progress=False):
+    cv_periods=None, show_progress=False):
     """Run the timeseries cross-val model selection across the forecasting
     functions for a single timeseries (`y`) and horizon length (`horiz`).
 
@@ -987,8 +967,44 @@ def run_cv_select(df, horiz, freq, obj_metric="smape_mean", cv_stride=1,
     grid = create_model_grid()
     grid = [g for g in grid if "|log" not in g[0]]
 
-    results = [run_cv(cfg, df, horiz, freq, cv_stride, bt_steps)
+    #
+    # decompose sliding windows once
+    #
+    period = DC_PERIODS[freq]
+
+    y = df["demand"].values
+
+    if horiz >= len(y):
+        cv_horiz = len(y) - 1
+    else:
+        cv_horiz = horiz
+
+    if cv_periods is None:
+        if freq[0] == "W":
+            cv_start = max(1, y.shape[0] - 26)
+        elif freq[0] == "M":
+            cv_start = max(1, y.shape[0] - 12)
+        else:
+            raise NotImplementedError
+    else:
+        cv_start = max(1, y.shape[0] - cv_periods) 
+
+    y = df["demand"].values
+
+    dc_dict = {}
+
+    for i in range(cv_start, len(y)-cv_horiz+1):
+        dc = sm.tsa.seasonal.seasonal_decompose(y[:i], period=period, two_sided=False)
+        yp_seasonal = fourier(dc.seasonal, horiz, freq, seasonal=False)
+        dc_dict[i] = (dc.resid, dc.trend, yp_seasonal)
+
+    dc = sm.tsa.seasonal.seasonal_decompose(y, period=period, two_sided=False)
+    yp_seasonal = fourier(dc.seasonal, horiz, freq, seasonal=False)
+    dc_dict[len(y)-1] = (dc.resid, dc.trend, yp_seasonal)
+
+    results = [run_cv(cfg, df, horiz, freq, cv_stride, cv_periods, dc_dict=dc_dict)
                for cfg in grid]
+    return
     df_results = pd.concat(results)
     
     assert obj_metric in df_results

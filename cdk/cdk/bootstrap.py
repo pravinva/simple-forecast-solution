@@ -139,8 +139,9 @@ class BootstrapStack(cdk.Stack):
                 --parameters SfsStack:instanceType={instance_type} \
                 --require-approval never
 
-            shutdown -h now
             EOF
+
+            shutdown -h now
             """)
         )
 
