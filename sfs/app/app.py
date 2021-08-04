@@ -200,15 +200,22 @@ def run_lambdamap(df, horiz, freq, max_lambdas=1000):
     # resample the dataset to the forecast frequency before running
     # lambdamap
     df2 = get_df_resampled(freq)
-
     groups = df2.groupby(GROUP_COLS, as_index=False, sort=False)
+
+    if freq[0] == "W":
+        cv_periods = 52
+    elif freq[0] == "M":
+        cv_periods = 12
+    else:
+        raise NotImplementedError
 
     with st.spinner(f":rocket: Launching forecasts via AWS Lambda (λ)..."):
         # generate payload
         for _, dd in groups:
             payloads.append(
                 {"args": (dd, horiz, freq),
-                 "kwargs": {"obj_metric": "smape_mean", "cv_stride": 2}})
+                 "kwargs": {"obj_metric": "smape_mean",
+                            "cv_periods": cv_periods, "cv_stride": 2}})
 
         executor = StreamlitExecutor(max_workers=min(max_lambdas, len(payloads)),
                                      lambda_arn=LAMBDAMAP_FUNC)

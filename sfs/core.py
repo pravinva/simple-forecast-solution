@@ -865,7 +865,7 @@ def create_model_grid():
     return grid
 
 
-def run_cv(cfg, df, horiz, freq, cv_stride=1, cv_periods=None, dc_dict=None):
+def run_cv(cfg, df, horiz, freq, cv_start, cv_stride=1, dc_dict=None):
     """Run a sliding-window temporal cross-validation (aka backtest) using a 
     given forecasting function (`func`).
     
@@ -896,16 +896,6 @@ def run_cv(cfg, df, horiz, freq, cv_stride=1, cv_periods=None, dc_dict=None):
         ts = np.append(
             pd.date_range(end=df.index[0], freq=freq, periods=diff+1), df.index)
 
-    if cv_periods is None:
-        if freq[0] == "W":
-            cv_start = max(1, y.shape[0] - 26)
-        elif freq[0] == "M":
-            cv_start = max(1, y.shape[0] - 24)
-        else:
-            raise NotImplementedError
-    else:
-        cv_start = max(1, y.shape[0] - cv_periods) 
-        
     # sliding window horizon actuals
     Y = sliding_window_view(y[cv_start:], cv_horiz)[::cv_stride,:]
     
@@ -983,12 +973,7 @@ def run_cv_select(df, horiz, freq, obj_metric="smape_mean", cv_stride=3,
         cv_horiz = horiz
 
     if cv_periods is None:
-        if freq[0] == "W":
-            cv_start = max(1, y.shape[0] - 26)
-        elif freq[0] == "M":
-            cv_start = max(1, y.shape[0] - 24)
-        else:
-            raise NotImplementedError
+        cv_start = 1
     else:
         cv_start = max(1, y.shape[0] - cv_periods) 
 
@@ -996,6 +981,7 @@ def run_cv_select(df, horiz, freq, obj_metric="smape_mean", cv_stride=3,
 
     y = df["demand"].values
     y = np.nan_to_num(y)
+
     if len(y) == 1:
         y = np.pad(y, [1,0], constant_values=1)
 
@@ -1009,8 +995,8 @@ def run_cv_select(df, horiz, freq, obj_metric="smape_mean", cv_stride=3,
 
         dc_dict[i] = vals
 
-    results = [run_cv(cfg, df, horiz, freq, cv_stride, cv_periods, dc_dict=dc_dict)
-               for cfg in grid]
+    results = [run_cv(cfg, df, horiz, freq, cv_start, cv_stride,
+                      dc_dict=dc_dict) for cfg in grid]
 
     df_results = pd.concat(results)
     
