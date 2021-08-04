@@ -897,7 +897,7 @@ def run_cv(cfg, df, horiz, freq, cv_stride=1, cv_periods=None, dc_dict=None):
         if freq[0] == "W":
             cv_start = max(1, y.shape[0] - 26)
         elif freq[0] == "M":
-            cv_start = max(1, y.shape[0] - 12)
+            cv_start = max(1, y.shape[0] - 24)
         else:
             raise NotImplementedError
     else:
@@ -946,7 +946,7 @@ def run_cv(cfg, df, horiz, freq, cv_stride=1, cv_periods=None, dc_dict=None):
     return df_results
 
 
-def run_cv_select(df, horiz, freq, obj_metric="smape_mean", cv_stride=1,
+def run_cv_select(df, horiz, freq, obj_metric="smape_mean", cv_stride=3,
     cv_periods=None, show_progress=False):
     """Run the timeseries cross-val model selection across the forecasting
     functions for a single timeseries (`y`) and horizon length (`horiz`).
@@ -983,7 +983,7 @@ def run_cv_select(df, horiz, freq, obj_metric="smape_mean", cv_stride=1,
         if freq[0] == "W":
             cv_start = max(1, y.shape[0] - 26)
         elif freq[0] == "M":
-            cv_start = max(1, y.shape[0] - 12)
+            cv_start = max(1, y.shape[0] - 24)
         else:
             raise NotImplementedError
     else:
