@@ -989,9 +989,13 @@ def run_cv_select(df, horiz, freq, obj_metric="smape_mean", cv_stride=3,
     else:
         cv_start = max(1, y.shape[0] - cv_periods) 
 
-    y = df["demand"].values
 
     dc_dict = {}
+
+    y = df["demand"].values
+    y = np.nan_to_num(y)
+    if len(y) == 1:
+        y = np.pad(y, [1,0], constant_values=1)
 
     for i in range(cv_start, len(y)-cv_horiz+1):
         dc = sm.tsa.seasonal_decompose(y[:i], period=period, two_sided=False)
