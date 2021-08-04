@@ -613,13 +613,6 @@ class SfsStack(cdk.Stack):
 
         def lambda_handler(event, context):
             payload = event["input"]["Payload"]
-
-            # get s3 location of the exports
-            afc_client = boto3.client("forecast")
-            resp = afc_client.describe_forecast_export_job(
-                ForecastExportJobArn=payload["ForecastExportJobArn"])
-            console_url = payload["AwsS3ConsoleUrl"]
-
             client = boto3.client("sns")
 
             response = client.publish(
@@ -630,8 +623,8 @@ class SfsStack(cdk.Stack):
 
                 Your SFA Machine Learning Forecast job has completed.
 
-                You can then download the forecast files using the "Export" button in
-                the "ML Forecasting" section of the report via the dashboard.
+                You can then download the forecast files using the "Export Machine Learning Forecasts"
+                button in the "Machine Learning Forecasts" section of your report via the dashboard.
 
                 Sincerely,
                 The Amazon SFA Team
