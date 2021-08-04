@@ -744,8 +744,6 @@ def panel_launch():
             with st.spinner("⏳ Calculating results ..."):
                 raw_results = [f.result() for f in futures.as_completed(wait_for)]
 
-                st.write(raw_results[0])
-
                 # generate the results and predictions as dataframes
                 df_results, df_preds, df_model_dist, best_err, naive_err = \
                     process_forecasts(wait_for)

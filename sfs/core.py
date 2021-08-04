@@ -1008,7 +1008,7 @@ def run_cv_select(df, horiz, freq, obj_metric="smape_mean", cv_stride=3,
 
     results = [run_cv(cfg, df, horiz, freq, cv_stride, cv_periods, dc_dict=dc_dict)
                for cfg in grid]
-    return
+
     df_results = pd.concat(results)
     
     assert obj_metric in df_results
