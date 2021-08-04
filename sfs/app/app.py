@@ -508,32 +508,43 @@ def panel_create_report(expanded=True):
                 now_str = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
                 report_name = f"SfsReport_{now_str}"
 
-            # temporarily load the file for validation and store it in state
-            # iff the data is valid
-            with st.spinner(":hourglass_flowing_sand: Validating file ..."):
-                df, msgs, is_valid_file = validate(_load_data(fn))#.drop(["timestamp", "channel"], axis=1))
-
-            if is_valid_file:
-                with st.spinner(":hourglass_flowing_sand: Processing file ..."):
-                    state.report["name"] = report_name
-                    state.report["data"]["path"] = fn
-                    state.report["data"]["sz_bytes"] = os.path.getsize(fn)
-                    state.report["data"]["freq"] = freq
-
-                    # impute missing dates from the validated dataframe, this
-                    # will fill in the missing timestamps with null demand values
-                    state.report["data"]["df"] = \
-                        load_data(df, impute_freq=state.report["data"]["freq"])
-                    state.report["data"]["is_valid"] = True
-
-                    # clear any existing data health check results, this forces
-                    # a rechecking of data health
-                    state.report["data"]["df_health"] = None
-
-                    st.text(f"(completed in {format_timespan(time.time() - start)})")
+            if report_name != "" and re.match(r"^[A-Za-z0-9-_]*$", report_name) is None:
+                st.error(dedent("""
+                The report name may only contain:
+                - uppercase letters
+                - lowercase letters
+                - numbers
+                - dashes ('-')
+                - underscores ('_')
+                ####
+                """))
             else:
-                err_bullets = "\n".join("- " + s for s in msgs["errors"])
-                st.error(f"**Validation failed**\n\n{err_bullets}")
+                # temporarily load the file for validation and store it in state
+                # iff the data is valid
+                with st.spinner(":hourglass_flowing_sand: Validating file ..."):
+                    df, msgs, is_valid_file = validate(_load_data(fn))#.drop(["timestamp", "channel"], axis=1))
+
+                if is_valid_file:
+                    with st.spinner(":hourglass_flowing_sand: Processing file ..."):
+                        state.report["name"] = report_name
+                        state.report["data"]["path"] = fn
+                        state.report["data"]["sz_bytes"] = os.path.getsize(fn)
+                        state.report["data"]["freq"] = freq
+
+                        # impute missing dates from the validated dataframe, this
+                        # will fill in the missing timestamps with null demand values
+                        state.report["data"]["df"] = \
+                            load_data(df, impute_freq=state.report["data"]["freq"])
+                        state.report["data"]["is_valid"] = True
+
+                        # clear any existing data health check results, this forces
+                        # a rechecking of data health
+                        state.report["data"]["df_health"] = None
+
+                        st.text(f"(completed in {format_timespan(time.time() - start)})")
+                else:
+                    err_bullets = "\n".join("- " + s for s in msgs["errors"])
+                    st.error(f"**Validation failed**\n\n{err_bullets}")
 
         if state.report["data"].get("is_valid", False):
             _success(f"""
