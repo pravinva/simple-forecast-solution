@@ -203,9 +203,11 @@ def run_lambdamap(df, horiz, freq, max_lambdas=1000):
     groups = df2.groupby(GROUP_COLS, as_index=False, sort=False)
 
     if freq[0] == "W":
-        cv_periods = 52
+        cv_periods = 26
+        cv_stride = 2
     elif freq[0] == "M":
         cv_periods = 12
+        cv_stride = 1
     else:
         raise NotImplementedError
 
@@ -215,7 +217,7 @@ def run_lambdamap(df, horiz, freq, max_lambdas=1000):
             payloads.append(
                 {"args": (dd, horiz, freq),
                  "kwargs": {"obj_metric": "smape_mean",
-                            "cv_periods": cv_periods, "cv_stride": 2}})
+                            "cv_periods": cv_periods, "cv_stride": cv_stride}})
 
         executor = StreamlitExecutor(max_workers=min(max_lambdas, len(payloads)),
                                      lambda_arn=LAMBDAMAP_FUNC)

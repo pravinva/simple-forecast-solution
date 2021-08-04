@@ -83,13 +83,6 @@ def forecaster(func):
 
         yp = np.nan_to_num(yp).clip(0).round(0)
         
-        if len(yp) != horiz:
-            print("---")
-            print(func)
-            print(y)
-            print(yp)
-            print("===")
-        
         assert len(yp) == horiz
 
         return yp
@@ -269,14 +262,6 @@ def arima(y, horiz, q=1, d=0, p=1, **kwargs):
 
     try:
         extra_periods=horiz-1
-#       
-#       if use_log:
-#           y = np.log(y+1)
-#           m = ARIMA(q, d, p)
-#           pred = m.fit_predict(y)
-#           pred = m.forecast(y, horiz)
-#           yp = np.exp(pred[-horiz:]).round(0)
-#       else:
         m = ARIMA(q, d, p)
         pred = m.fit_predict(y)
         pred = m.forecast(y, horiz)
