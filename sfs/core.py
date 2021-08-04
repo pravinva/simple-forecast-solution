@@ -1,6 +1,6 @@
 import traceback
 import contextlib
-import statsmodels.api as sm
+import statsmodels as sm
 import pandas as pd
 import numpy as np
 import time
@@ -20,7 +20,7 @@ OBJ_METRICS = ["smape_mean"]
 
 # these define how long a tail period is for each freq.
 TAIL_LEN = {"D": 56, "W": 12, "W-MON": 12, "M": 3, "MS": 3}
-DC_PERIODS = {"D": 365, "W": 52, "W-MON": 52, "M": 12, "MS": 12}
+DC_PERIODS = {"D": 365, "W": 7, "W-MON": 7, "M": 12, "MS": 12}
 
 
 #
@@ -63,15 +63,16 @@ def forecaster(func):
                 period = int(len(y) / 2)
 
             kwargs.pop("seasonal")
-            
+
             try:
-                dc = sm.tsa.seasonal_decompose(y, period=period, two_sided=False)
+                dc = sm.tsa.seasonal.seasonal_decompose(y, period=period, two_sided=False)
                 yp_seasonal = fourier(dc.seasonal, horiz, freq, seasonal=False)
                 yp_trend = func(np.nan_to_num(dc.trend), horiz, **kwargs)
                 yp_resid = func(np.nan_to_num(dc.resid), horiz, **kwargs)
                 yp = yp_seasonal + yp_trend + yp_resid
             except:
                 yp = np.zeros(horiz)
+
         else:
             # ensure the input values are not null
             yp = func(y, horiz, **kwargs)
@@ -269,17 +270,6 @@ def trend(y, horiz, **kwargs):
         yp = f(x1) * mu
 
         return yp
-
-    '''
-    try:
-        if y.sum() > 0:
-            yp = yp_linear(y, horiz)
-        else:
-            yp = y.mean() * np.ones(horiz)
-    except:
-        traceback.print_exc()
-        yp = np.zeros(horiz)
-    '''
 
     if y.sum() > 0:
         yp = yp_linear(y, horiz)
@@ -892,12 +882,12 @@ def create_model_grid():
     return grid
 
 
-def run_cv(cfg, df, horiz, freq, cv_stride=1):
+def run_cv(cfg, df, horiz, freq, cv_stride=1, bt_steps=None):
     """Run a sliding-window temporal cross-validation (aka backtest) using a 
     given forecasting function (`func`).
     
     """
-    
+
     y = df["demand"].values
 
     # allow only 1D time-series arrays
@@ -906,7 +896,7 @@ def run_cv(cfg, df, horiz, freq, cv_stride=1):
     params, func = cfg
     
     if len(y) == 1:
-        y = np.pad(y, [1,0], constant_values=1)
+        y = np.pad(y, [1, 0], constant_values=1)
         
     # the cross-val horizon length may shrink depending on the length of
     # historical data; shrink the horizon if it is >= the timeseries
@@ -921,11 +911,20 @@ def run_cv(cfg, df, horiz, freq, cv_stride=1):
         assert len(y) > len(df)
         diff = len(y) - len(df)
         ts = np.append(
-            pd.date_range(end=df.index[0], freq=freq, periods=diff+1),
-            df.index)
+            pd.date_range(end=df.index[0], freq=freq, periods=diff+1), df.index)
+
+    if bt_steps is None:
+        if freq[0] == "W":
+            cv_start = max(1, y.shape[0] - 26)
+        elif freq[0] == "M":
+            cv_start = max(1, y.shape[0] - 12)
+        else:
+            raise NotImplementedError
+    else:
+        cv_start = max(1, y.shape[0] - bt_steps) 
         
     # sliding window horizon actuals
-    Y = sliding_window_view(y[1:], cv_horiz)[::cv_stride,:]
+    Y = sliding_window_view(y[cv_start:], cv_horiz)[::cv_stride,:]
     
     Ycv = []
 
@@ -936,7 +935,7 @@ def run_cv(cfg, df, horiz, freq, cv_stride=1):
     #   ::
     # |  y                    | horiz   |
 
-    for i in range(1, len(y)-cv_horiz+1, cv_stride):
+    for i in range(cv_start, len(y)-cv_horiz+1, cv_stride):
         yp = func(y[:i], cv_horiz, freq)
         Ycv.append(yp)
 
@@ -944,7 +943,7 @@ def run_cv(cfg, df, horiz, freq, cv_stride=1):
     Ycv = np.vstack(Ycv)
     
     # keep the backtest forecast time indices
-    Yts = sliding_window_view(ts[1:], cv_horiz)[::cv_stride,:]
+    Yts = sliding_window_view(ts[cv_start:], cv_horiz)[::cv_stride,:]
 
     assert Yts.shape == Y.shape
     assert Yts.shape == Ycv.shape
@@ -968,7 +967,7 @@ def run_cv(cfg, df, horiz, freq, cv_stride=1):
 
 
 def run_cv_select(df, horiz, freq, obj_metric="smape_mean", cv_stride=1,
-    show_progress=False):
+    bt_steps=None, show_progress=False):
     """Run the timeseries cross-val model selection across the forecasting
     functions for a single timeseries (`y`) and horizon length (`horiz`).
 
@@ -986,8 +985,10 @@ def run_cv_select(df, horiz, freq, obj_metric="smape_mean", cv_stride=1,
 
     # these are the model configurations to run
     grid = create_model_grid()
-    results = [partial(run_cv, cfg, df, horiz, freq, cv_stride)() for cfg in grid]
+    grid = [g for g in grid if "|log" not in g[0]]
 
+    results = [run_cv(cfg, df, horiz, freq, cv_stride, bt_steps)
+               for cfg in grid]
     df_results = pd.concat(results)
     
     assert obj_metric in df_results

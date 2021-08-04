@@ -179,8 +179,7 @@ def run_lambdamap(df, horiz, freq, max_lambdas=1000):
 
     # resample the dataset to the forecast frequency before running
     # lambdamap
-    with st.spinner(f"⏳ Resampling data to _{FREQ_MAP_LONG[freq]}_ frequency .."):
-        df2 = resample(df, freq)
+    df2 = resample(df, freq)
 
     groups = df2.groupby(GROUP_COLS, as_index=False, sort=False)
 
@@ -1346,7 +1345,7 @@ def panel_ml_launch():
 
     st.header("Machine Learning Forecasts")
 
-    with st.beta_expander("🚀 Launch"):
+    with st.beta_expander("🚀 Launch", expanded=True):
         st.write("_Optional_ – Launch machine learning forecasts using the [Amazon Forecast](https://aws.amazon.com/forecast/) managed service.")
         with st.form("ml_form"):
             _cols = st.beta_columns(3)
@@ -1378,9 +1377,16 @@ def panel_ml_launch():
                 state.report["afc"]["status_json_s3_path"] = status_json_s3_path
                 state.report["afc"]["prefix"] = prefix
 
+                st.info(dedent(f"""
+                Job submitted, the ARN is:
+                - {execution_arn}
+                """))
+
         execution_arn = state.report["afc"].get("execution_arn", None)
 
-        if execution_arn is not None:
+        check_job_status_btn = st.button("🔄 Check Job Status")
+
+        if check_job_status_btn and execution_arn is not None:
             with st.spinner("⏳ Checking job status ..."):
                 sfn_status, status_dict = refresh_ml_state_machine_status()
                 sfn_state = status_dict["PROGRESS"]["state"]
@@ -1392,19 +1398,14 @@ def panel_ml_launch():
                 st.info(textwrap.dedent(f"""
                 **Status:** {sfn_status}  
                 **Stage:** {sfn_state}  
+                **Execution ARN:** `{execution_arn}`  
                 **AWS Console:** [view](https://console.aws.amazon.com/states/home#/executions/details/{execution_arn})
                 """))
 
-
-            st.write(state["report"])
-
-            _cols = st.beta_columns([2,0.37])
-
-            with _cols[0]:
-                ml_refresh_job_button = st.button("Refresh Job Status")
+            _cols = st.beta_columns([2,0.485])
 
             with _cols[1]:
-                ml_stop_button = st.button("Stop Job")
+                ml_stop_button = st.button("🛑 Stop Job")
 
             if ml_stop_button:
                 sfn_client = boto3.client("stepfunctions")
@@ -1609,7 +1610,7 @@ def run_ml_state_machine():
 
 def refresh_ml_state_machine_status():
     """
-    """
+    ""
     sfn_client = boto3.client("stepfunctions")
     resp = sfn_client.describe_execution(
         executionArn=state.report["afc"]["execution_arn"])
