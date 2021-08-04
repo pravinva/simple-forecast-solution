@@ -1,6 +1,6 @@
 import traceback
 import contextlib
-import statsmodels as sm
+import statsmodels.api as sm
 import pandas as pd
 import numpy as np
 import time
@@ -994,11 +994,11 @@ def run_cv_select(df, horiz, freq, obj_metric="smape_mean", cv_stride=3,
     dc_dict = {}
 
     for i in range(cv_start, len(y)-cv_horiz+1):
-        dc = sm.tsa.seasonal.seasonal_decompose(y[:i], period=period, two_sided=False)
+        dc = sm.tsa.seasonal_decompose(y[:i], period=period, two_sided=False)
         yp_seasonal = fourier(dc.seasonal, horiz, freq, seasonal=False)
         dc_dict[i] = (dc.resid, dc.trend, yp_seasonal)
 
-    dc = sm.tsa.seasonal.seasonal_decompose(y, period=period, two_sided=False)
+    dc = sm.tsa.seasonal_decompose(y, period=period, two_sided=False)
     yp_seasonal = fourier(dc.seasonal, horiz, freq, seasonal=False)
     dc_dict[len(y)-1] = (dc.resid, dc.trend, yp_seasonal)
 
