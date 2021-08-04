@@ -129,7 +129,7 @@ def create_predictor_handler(event, context):
         payload["StatusJsonS3Path"])
 
     AFC_DATASET_GROUP_ARN = payload["DatasetGroupArn"]
-    AFC_FORECAST_HORIZON = payload["horiz"]
+    AFC_FORECAST_HORIZON = payload["horiz"] + 1
     AFC_FORECAST_FREQUENCY = payload["freq"]
     #AFC_ALGORITHM_NAME = "NPTS"
     #AFC_ALGORITHM_ARN = "arn:aws:forecast:::algorithm/NPTS"

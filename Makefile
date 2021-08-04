@@ -10,6 +10,9 @@
 export SHELL
 SHELL:=/bin/bash
 ROOT_DIR:=$(shell dirname $(realpath $(lastword $(MAKEFILE_LIST))))
+
+# SNS emails will be sent to this address to notify when the SageMaker Notebook
+# instances are deployed and when the ML forecasting jobs are completed.
 EMAIL:=
 INSTANCE_TYPE:=ml.t2.medium
 
@@ -18,11 +21,12 @@ INSTANCE_TYPE:=ml.t2.medium
 # Deploy the SFS stack
 deploy: SfsStack
 
-template.yaml: ./cdk/bootstrap.py
-	( cd cdk ; cdk synth SfsBootstrapStack ) > $@
-
 destroy:
 	cd cdk ; cdk destroy --all
+
+# Generate the bootstrap cloudformation YAML template
+template.yaml: ./cdk/bootstrap.py
+	( cd cdk ; cdk synth SfsBootstrapStack ) > $@
 
 SfsStack:
 	cd cdk ; \

@@ -1225,6 +1225,8 @@ def load_data(data, impute_freq=None):
     if impute_freq is not None:
         df = impute_dates(df, impute_freq)
 
+    df["demand"] = df["demand"].clip(0).round(0)
+
     return df
 
 

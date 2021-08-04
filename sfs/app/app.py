@@ -1,23 +1,31 @@
 # vim: set fdm=indent:
 '''
- ___ _            _             
-/ __(_)_ __  _ __| |___         
-\__ \ | '  \| '_ \ / -_)        
-|___/_|_|_|_| .__/_\___|        
- ___        |_|            _    
-| __|__ _ _ ___ __ __ _ __| |_  
-| _/ _ \ '_/ -_) _/ _` (_-<  _| 
-|_|\___/_| \___\__\__,_/__/\__| 
- ___      _      _   _          
-/ __| ___| |_  _| |_(_)___ _ _  
-\__ \/ _ \ | || |  _| / _ \ ' \ 
-|___/\___/_|\_,_|\__|_\___/_||_|
+   _____ _                 __                            
+  / ___/(_)___ ___  ____  / /__                          
+  \__ \/ / __ `__ \/ __ \/ / _ \                         
+ ___/ / / / / / / / /_/ / /  __/                         
+/____/_/_/ /_/ /_/ .___/_/\___/           __             
+   / ____/___  _/_/____  _________ ______/ /_            
+  / /_  / __ \/ ___/ _ \/ ___/ __ `/ ___/ __/            
+ / __/ / /_/ / /  /  __/ /__/ /_/ (__  ) /_              
+/_/ ___\____/_/   \___/\___/\__,_/____/\__/__            
+   /   | _____________  / /__  _________ _/ /_____  _____
+  / /| |/ ___/ ___/ _ \/ / _ \/ ___/ __ `/ __/ __ \/ ___/
+ / ___ / /__/ /__/  __/ /  __/ /  / /_/ / /_/ /_/ / /    
+/_/  |_\___/\___/\___/_/\___/_/   \__,_/\__/\____/_/     
 
-https://github.com/aws-samples/simple-forecat-solution/
+
+GITHUB:
+    https://github.com/aws-samples/simple-forecat-solution/
 
 USAGE:
     streamlit run -- ./app.py --local-dir LOCAL_DIR [--landing-page-url URL]
-                                 
+
+OPTIONS:
+    --local-dir LOCAL_DIR       /path/to/ a local directory from which the UI
+                                will look for files.
+    --landing-page-url URL      URL of the SFA landing page
+
 '''
 import os
 import sys
@@ -170,6 +178,7 @@ def display_progress(wait_for, desc=None):
 
 
 def get_df_resampled(freq):
+    df = state["report"]["data"].get("df", None)
     df2 = state["report"]["data"].get("df2", None)
 
     if df2 is None:
@@ -190,7 +199,7 @@ def run_lambdamap(df, horiz, freq, max_lambdas=1000):
 
     # resample the dataset to the forecast frequency before running
     # lambdamap
-    df2 = get_df_resampled()
+    df2 = get_df_resampled(freq)
 
     groups = df2.groupby(GROUP_COLS, as_index=False, sort=False)
 
@@ -547,6 +556,7 @@ def panel_load_report(expanded=True):
     s3 = boto3.client("s3")
 
     st.markdown("## Load Report")
+
     with st.beta_expander("📂 Load Report", expanded=expanded):
         st.write(f"""Optional – Alternatively, you can load a previously-generated
         report. Report files must have the `.pkl.gz` file extension and can be uploaded
@@ -561,15 +571,10 @@ def panel_load_report(expanded=True):
                 fn = file_selectbox("File", os.path.join(args.local_dir),
                                     globs=("*.pkl.gz",)) 
             elif report_source == "s3":
-                # list the reports in the s3 bucket
-    #           df_reports = make_df_reports(bucket, prefix)
-    #           grid_resp = \
-    #               display_ag_grid(df_reports, paginate=True, comma_cols=[],
-    #                               selection_mode="single", use_checkbox=True)
-    #           st.write(grid_resp)
                 pass
             else:
                 raise NotImplementedError
+
             load_report_btn = st.button("Load", key="load_report_btn")
 
         with _cols[1]:
@@ -578,8 +583,10 @@ def panel_load_report(expanded=True):
 
         if load_report_btn:
             start = time.time()
+
             with st.spinner(":hourglass_flowing_sand: Loading Report ..."):
                 state["report"] = cloudpickle.load(gzip.open(fn, "rb"))
+
             st.text(f"(completed in {format_timespan(time.time() - start)})")
             state["prev_state"] = "report_loaded"
 
@@ -705,7 +712,7 @@ def panel_launch():
     st.header("Statistical Forecasts")
 
     with st.beta_expander("🚀 Launch", expanded=True):
-        st.write(f"""Step 3 – Generate forecasts by training and evaluating 75+
+        st.write(f"""Step 3 – Generate forecasts by training and evaluating 75
         configurations of [statistical forecasting
         models](https://otexts.com/fpp3/) for each timeseries in
         parallel using AWS Lambda. A forecast at the desired _horizon length_ and
@@ -1193,7 +1200,8 @@ def download_afc_files():
     df_backtests[["channel", "family", "item_id"]] = \
         df_backtests["item_id"].str.split("@@", expand=True)
     df_backtests["timestamp"] = pd.DatetimeIndex(df_backtests["backtestwindow_end_time"])
-    df_backtests["demand"] = df_backtests["p50"]
+    df_backtests["p10"] = np.clip(df_backtests["p10"], 0, None)
+    df_backtests["demand"] = np.clip(df_backtests["p50"], 0, None)
 
     df_backtests = df_backtests[["timestamp", "channel", "family", "item_id",
                                  "demand", "p10", "p90", "target_value"]]
@@ -1429,6 +1437,7 @@ def panel_ml_launch():
                 st.info(dedent(f"""
                 Job submitted, the ARN is:
                 - {execution_arn}
+                ####
                 """))
 
         execution_arn = state.report["afc"].get("execution_arn", None)
@@ -1473,18 +1482,41 @@ def panel_ml_launch():
     return
 
 
+def calc_afc_ml_accuracies():
+    """
+    """
+
+    df_backtests = state.report["afc"]["df_backtests"]
+    df_accuracies = df_backtests \
+        | px.groupby(["channel", "family", "item_id"], sort=False) \
+        | px.apply(lambda dd: calc_smape(dd["target_value"].clip(0, None),
+                                         dd["demand"].clip(0, None))) \
+        | px.reset_index() \
+        | px.rename({0: "smape"}, axis=1) \
+        | px.assign(smape=px["smape"].clip(0,1)) \
+        | px.assign(acc=(1-px["smape"])*100)
+    return df_accuracies
+
+
 def panel_ml_forecast_summary():
     """
     """
 
     df = state.report["data"].get("df", None)
     df_results = state.report["afc"].get("df_results", None)
+    df_backtests = state.report["afc"].get("df_backtests", None)
 
-    if df is None or df_results is None:
+    if df is None or df_results is None or df_backtests is None:
         return
 
     with st.beta_expander("Forecast Summary", expanded=False):
         ml_acc = 100 - np.nanmean(df_results.query("backtest_window == 'Summary'")["WAPE"].clip(0,100))
+        df_accuracies = calc_afc_ml_accuracies()
+
+        st.write(df_backtests)
+        st.write(df_accuracies)
+        st.write(123)
+
         _cols = st.beta_columns(3)
 
         with _cols[0]:
@@ -1834,5 +1866,3 @@ if __name__ == "__main__":
                 save_report(report_fn)
 
     panel_save_report()
-
-    st.write(state["report"]["afc"])
