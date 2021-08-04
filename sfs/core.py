@@ -57,19 +57,22 @@ def forecaster(func):
 
         # forecast via seasonal decomposition
         if seasonal:
-            period = DC_PERIODS[freq]
+            if dc is None:
+                yp = np.zeros(horiz)
+            else:
+                period = DC_PERIODS[freq]
 
-            if len(y) < 2 * period:
-                period = int(len(y) / 2)
+                if len(y) < 2 * period:
+                    period = int(len(y) / 2)
 
-            kwargs.pop("seasonal")
+                kwargs.pop("seasonal")
 
-            resid, trend, yp_seasonal = dc
-            #dc = sm.tsa.seasonal.seasonal_decompose(y, period=period, two_sided=False)
-            #yp_seasonal = fourier(seas, horiz, freq, seasonal=False)
-            yp_trend = func(np.nan_to_num(trend), horiz, **kwargs)
-            yp_resid = func(np.nan_to_num(resid), horiz, **kwargs)
-            yp = yp_seasonal + yp_trend + yp_resid
+                resid, trend, yp_seasonal = dc
+                #dc = sm.tsa.seasonal.seasonal_decompose(y, period=period, two_sided=False)
+                #yp_seasonal = fourier(seas, horiz, freq, seasonal=False)
+                yp_trend = func(np.nan_to_num(trend), horiz, **kwargs)
+                yp_resid = func(np.nan_to_num(resid), horiz, **kwargs)
+                yp = yp_seasonal + yp_trend + yp_resid
         else:
             # ensure the input values are not null
             yp = func(y, horiz, **kwargs)
@@ -989,7 +992,6 @@ def run_cv_select(df, horiz, freq, obj_metric="smape_mean", cv_stride=3,
     else:
         cv_start = max(1, y.shape[0] - cv_periods) 
 
-
     dc_dict = {}
 
     y = df["demand"].values
@@ -997,14 +999,15 @@ def run_cv_select(df, horiz, freq, obj_metric="smape_mean", cv_stride=3,
     if len(y) == 1:
         y = np.pad(y, [1,0], constant_values=1)
 
-    for i in range(cv_start, len(y)-cv_horiz+1):
-        dc = sm.tsa.seasonal_decompose(y[:i], period=period, two_sided=False)
-        yp_seasonal = fourier(dc.seasonal, horiz, freq, seasonal=False)
-        dc_dict[i] = (dc.resid, dc.trend, yp_seasonal)
+    for i in range(cv_start, len(y)):
+        try:
+            dc = sm.tsa.seasonal_decompose(y[:i], period=period, two_sided=False)
+            yp_seasonal = fourier(dc.seasonal, horiz, freq, seasonal=False)
+            vals = (dc.resid, dc.trend, yp_seasonal)
+        except:
+            vals = None
 
-    dc = sm.tsa.seasonal_decompose(y, period=period, two_sided=False)
-    yp_seasonal = fourier(dc.seasonal, horiz, freq, seasonal=False)
-    dc_dict[len(y)-1] = (dc.resid, dc.trend, yp_seasonal)
+        dc_dict[i] = vals
 
     results = [run_cv(cfg, df, horiz, freq, cv_stride, cv_periods, dc_dict=dc_dict)
                for cfg in grid]
