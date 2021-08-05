@@ -734,12 +734,12 @@ def panel_launch():
     st.header("Statistical Forecasts")
 
     with st.beta_expander("🚀 Launch", expanded=True):
-        st.write(f"""Step 3 – Generate forecasts by training and evaluating 75
+        st.write(f"""Step 3 – Generate forecasts by training and evaluating 75+
         configurations of [statistical forecasting
         models](https://otexts.com/fpp3/) for each timeseries in
         parallel using AWS Lambda. A forecast at the desired _horizon length_ and
         _frequency_ is then generated using the each individual timeseries' best model.
-        This process typically completes at a rate of over 1,000 timeseries/min.
+        This process typically completes at a rate of 500–1,000 timeseries/min.
         """)
 
         with st.form("sfs_form"):
