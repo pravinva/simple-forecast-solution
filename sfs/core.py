@@ -16,7 +16,7 @@ from numpy.lib.stride_tricks import sliding_window_view
 
 EXP_COLS = ["timestamp", "channel", "family", "item_id", "demand"]
 GROUP_COLS = ["channel", "family", "item_id"]
-OBJ_METRICS = ["smape_mean"]
+OBJ_METRICS = ["smape_mean", "wape_mean"]
 
 # these define how long a tail period is for each freq.
 TAIL_LEN = {"D": 56, "W": 12, "W-MON": 12, "M": 3, "MS": 3}
@@ -507,7 +507,7 @@ def make_demand_classification(df, freq):
     return df_analysis
 
 
-def make_perf_summary(df_results):
+def make_perf_summary(df_results, metric="smape"):
     """Generate the dataframe summarizing the overall performance, primarily
     for use in the UI:
 
@@ -549,18 +549,18 @@ def make_perf_summary(df_results):
                   .groupby(GROUP_COLS, as_index=False, sort=False) \
                   .first()
 
-    naive_err_mean = np.nanmean(np.hstack(df_best_naive["smape"])).round(4)
-    naive_err_median = np.nanmedian(np.hstack(df_best_naive["smape"])).round(4)
-    naive_err_std = np.nanstd(np.hstack(df_best_naive["smape"])).round(4)
+    naive_err_mean = np.nanmean(np.hstack(df_best_naive[metric])).round(4)
+    naive_err_median = np.nanmedian(np.hstack(df_best_naive[metric])).round(4)
+    naive_err_std = np.nanstd(np.hstack(df_best_naive[metric])).round(4)
 
     naive_err = pd.Series({"err_mean": naive_err_mean,
                            "err_median": naive_err_median,
                            "err_std": naive_err_std })
 
     # summarize the metrics and improvement vs. naive
-    err_mean = np.nanmean(np.hstack(df_best["smape"])).round(4)
-    err_median = np.nanmedian(np.hstack(df_best["smape"])).round(4)
-    err_std = np.nanstd(np.hstack(df_best["smape"])).round(4)
+    err_mean = np.nanmean(np.hstack(df_best[metric])).round(4)
+    err_median = np.nanmedian(np.hstack(df_best[metric])).round(4)
+    err_std = np.nanstd(np.hstack(df_best[metric])).round(4)
 
     best_err = pd.Series({"err_mean": err_mean,
                           "err_median": err_median,
@@ -621,7 +621,7 @@ def make_health_summary(df, freq):
     return df_summary
 
 
-def process_forecasts(wait_for):
+def process_forecasts(wait_for, metric):
     """
     """
 
@@ -647,7 +647,7 @@ def process_forecasts(wait_for):
     df_preds.reset_index(inplace=True)
 
     # generate performance summary
-    df_model_dist, best_err, naive_err = make_perf_summary(df_results)
+    df_model_dist, best_err, naive_err = make_perf_summary(df_results, metric)
 
     # keep only the best model results
     df_results = df_results[df_results["rank"] == 1]
@@ -850,7 +850,8 @@ def create_model_grid():
     return grid
 
 
-def run_cv(cfg, df, horiz, freq, cv_start, cv_stride=1, dc_dict=None):
+def run_cv(cfg, df, horiz, freq, cv_start, cv_stride=1, dc_dict=None,
+    metric="smape"):
     """Run a sliding-window temporal cross-validation (aka backtest) using a 
     given forecasting function (`func`).
     
@@ -909,7 +910,7 @@ def run_cv(cfg, df, horiz, freq, cv_start, cv_stride=1, dc_dict=None):
     assert Ycv.shape == Y.shape
 
     # calc. error metrics
-    df_results = calc_metrics(Y, Ycv)
+    df_results = calc_metrics(Y, Ycv, metric)
     df_results.insert(0, "model_type", params.split("|")[0])
     df_results.insert(1, "params", params)
     
@@ -924,7 +925,7 @@ def run_cv(cfg, df, horiz, freq, cv_start, cv_stride=1, dc_dict=None):
     return df_results
 
 
-def run_cv_select(df, horiz, freq, obj_metric="smape_mean", cv_stride=3,
+def run_cv_select(df, horiz, freq, metric="smape", cv_stride=3,
     cv_periods=None, show_progress=False):
     """Run the timeseries cross-val model selection across the forecasting
     functions for a single timeseries (`y`) and horizon length (`horiz`).
@@ -939,11 +940,10 @@ def run_cv_select(df, horiz, freq, obj_metric="smape_mean", cv_stride=3,
     item_id = df.iloc[0]["item_id"]
 
     assert len(df["demand"]) > 0
-    assert obj_metric in OBJ_METRICS
 
     # these are the model configurations to run
     grid = create_model_grid()
-    grid = [g for g in grid if "|log" not in g[0]]
+    #grid = [g for g in grid if "|log" not in g[0]]
 
     #
     # decompose sliding windows once
@@ -981,14 +981,12 @@ def run_cv_select(df, horiz, freq, obj_metric="smape_mean", cv_stride=3,
         dc_dict[i] = vals
 
     results = [run_cv(cfg, df, horiz, freq, cv_start, cv_stride,
-                      dc_dict=dc_dict) for cfg in grid]
+                      dc_dict=dc_dict, metric=metric) for cfg in grid]
 
     df_results = pd.concat(results)
-    
-    assert obj_metric in df_results
 
-    # rank results according to the `obj_metric`
-    df_results.sort_values(by=obj_metric, ascending=True, inplace=True)
+    # rank results by the metric
+    df_results.sort_values(by=metric + "_mean", ascending=True, inplace=True)
     df_results["rank"] = np.arange(len(df_results)) + 1
 
     df_results.insert(0, "channel", channel)
@@ -1027,7 +1025,7 @@ def run_cv_select(df, horiz, freq, obj_metric="smape_mean", cv_stride=3,
     return df_pred, df_results
 
 
-def run_pipeline(data, freq_in, freq_out, obj_metric="smape_mean",
+def run_pipeline(data, freq_in, freq_out, metric="smape",
     cv_stride=1, backend="futures", tqdm_obj=None, horiz=None):
     """Run model selection over *all* timeseries in a dataframe. Note that
     this is a generator and will yield one results dataframe per timeseries at
@@ -1071,14 +1069,14 @@ def run_pipeline(data, freq_in, freq_out, obj_metric="smape_mean",
 
     if backend == "python": 
         results = \
-            [run_cv_select(dd, horiz, freq_out, obj_metric, cv_stride)
+            [run_cv_select(dd, horiz, freq_out, metric, cv_stride)
                  for _, dd in groups]
     elif backend == "futures":
         ex = futures.ProcessPoolExecutor()
 
         wait_for = [
             ex.submit(run_cv_select,
-                *(dd, horiz, freq_out, obj_metric, cv_stride))
+                *(dd, horiz, freq_out, metric, cv_stride))
                 for _, dd in groups
         ]
 
@@ -1097,7 +1095,7 @@ def run_pipeline(data, freq_in, freq_out, obj_metric="smape_mean",
 #
 # Error metrics
 #
-def calc_metrics(Y, Ycv):
+def calc_metrics(Y, Ycv, metric="smape"):
     """Note, this operates on 2D arrays of sliding window values.
 
     """
@@ -1108,25 +1106,31 @@ def calc_metrics(Y, Ycv):
     # calc. error metrics
     df_metrics = pd.DataFrame()
 
-    metric_funcs = [("smape", calc_smape)]
     metric_aggs = [
         ("mean", np.nanmean),
         ("median", np.nanmedian),
         ("std", np.nanstd)
     ]
 
-    for metric, metric_func in metric_funcs:
-        df_metrics[metric] = [calc_smape(Y, Ycv)]
-        for agg, agg_func in metric_aggs:
-            df_metrics[f"{metric}_{agg}"] = \
-                df_metrics[metric].apply(agg_func).round(4)
+    if metric == "smape":
+        metric_func = calc_smape
+    elif metric == "wape":
+        metric_func = calc_wape
+    else:
+        raise NotImplementedError
+
+    df_metrics[metric] = [metric_func(Y, Ycv)]
+
+    for agg, agg_func in metric_aggs:
+        df_metrics[f"{metric}_{agg}"] = \
+            df_metrics[metric].apply(agg_func).round(4)
 
     assert(len(df_metrics) == 1)
 
     return df_metrics
     
 
-def calc_smape(y, yp, axis=0):
+def calc_smape(y, yp, axis=0, smooth=True):
     """Calculate the symmetric mean absolute percentage error (sMAPE).
     
     sMAPE is calulated as follows:
@@ -1137,13 +1141,24 @@ def calc_smape(y, yp, axis=0):
     
     """
 
+    if smooth:
+        eps = 1 / y.shape[0]
+        y2, yp2 = y + eps, yp + eps
+    else:
+        y2, yp2 = y, yp
+
     try:
-        smape = np.divide(np.nansum(np.abs(y - yp), axis=axis),
-                          np.nansum(y + yp, axis=axis))
+        smape = np.divide(np.nansum(np.abs(y2 - yp2), axis=axis),
+                          np.nansum(y2 + yp2, axis=axis))
     except ZeroDivisionError:
         smape = 0.0
         
     return smape.round(4)
+
+
+def calc_wape(y, yp):
+    wape = np.nansum(np.abs(y-yp)) / (1 + np.nansum(np.abs(y)))
+    return wape.round(4)
 
 
 #

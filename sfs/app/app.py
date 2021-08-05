@@ -61,7 +61,7 @@ from streamlit import session_state as state
 from textwrap import dedent
 from stqdm import stqdm
 from sfs import (load_data, resample, run_pipeline, run_cv_select,
-    calc_smape,
+    calc_smape, calc_wape,
     make_demand_classification, process_forecasts, make_perf_summary,
     make_health_summary, GROUP_COLS, EXP_COLS)
 
@@ -97,6 +97,8 @@ FREQ_MAP_PD = {
     "M": "MS",
     "MS": "MS"
 }
+
+METRIC = "smape"
 
 
 def validate(df):
@@ -203,10 +205,10 @@ def run_lambdamap(df, horiz, freq, max_lambdas=1000):
     groups = df2.groupby(GROUP_COLS, as_index=False, sort=False)
 
     if freq[0] == "W":
-        cv_periods = 26
-        cv_stride = 2
+        cv_periods = None
+        cv_stride = 2 
     elif freq[0] == "M":
-        cv_periods = 12
+        cv_periods = None
         cv_stride = 1
     else:
         raise NotImplementedError
@@ -216,7 +218,7 @@ def run_lambdamap(df, horiz, freq, max_lambdas=1000):
         for _, dd in groups:
             payloads.append(
                 {"args": (dd, horiz, freq),
-                 "kwargs": {"obj_metric": "smape_mean",
+                 "kwargs": {"metric": "smape",
                             "cv_periods": cv_periods, "cv_stride": cv_stride}})
 
         executor = StreamlitExecutor(max_workers=min(max_lambdas, len(payloads)),
@@ -752,7 +754,8 @@ def panel_launch():
                             format_func=lambda s: FREQ_MAP_LONG[s])
 
                 with _cols[2]:
-                    backend = st.selectbox("Compute Backend", ["lambdamap"], 0, _format_func)
+                    backend = st.selectbox("Compute Backend",
+                                    ["lambdamap", "local"], 0, _format_func)
 
                 btn_launch = st.form_submit_button("Launch")
 
@@ -770,7 +773,7 @@ def panel_launch():
 
             if backend == "local":
                 wait_for = \
-                    run_pipeline(df, freq_in, freq_out, obj_metric="smape_mean",
+                    run_pipeline(df, freq_in, freq_out, metric=METRIC,
                         cv_stride=2, backend="futures", horiz=horiz)
             elif backend == "lambdamap":
                 wait_for = run_lambdamap(df, horiz, freq_out)
@@ -784,7 +787,7 @@ def panel_launch():
 
                 # generate the results and predictions as dataframes
                 df_results, df_preds, df_model_dist, best_err, naive_err = \
-                    process_forecasts(wait_for)
+                    process_forecasts(wait_for, METRIC)
 
                 # generate the demand classifcation info
                 df_demand_cln = make_demand_classification(df, freq_in)
@@ -821,7 +824,23 @@ def panel_accuracy():
 
     if df is None or df_results is None or df_model_dist is None:
         return
+    
+    def _calc_metrics(dd, metric="smape"):
+        if metric == "smape":
+            metric_func = calc_smape
+        elif metric == "wape":
+            metric_func = calc_wape
+        else:
+            raise NotImplementedError
 
+        ys = np.hstack(dd["y_cv"].apply(np.hstack))
+        yp = np.hstack(dd["yp_cv"].apply(np.hstack))
+
+        return metric_func(ys, yp)
+
+    df_acc = df_results.groupby(["channel", "family", "item_id"], as_index=False, sort=True) \
+                       .apply(lambda dd: _calc_metrics(dd, METRIC)) \
+                       .rename({None: METRIC}, axis=1)
 
     with st.beta_expander("🎯 Forecast Summary", expanded=True):
         _write(f"""
@@ -879,21 +898,23 @@ def panel_accuracy():
             fig.update_traces(textinfo="percent+label")
             st.plotly_chart(fig)
 
-        acc = (1 - best_err.err_mean) * 100.
+        acc_val = (1 - df_acc[METRIC].mean()) * 100.
         acc_naive = (1 - naive_err.err_mean) * 100.
 
         with _cols[2]:
             st.markdown("#### Overall Accuracy")
 
             st.markdown(
-                f"<div style='font-size:36pt;font-weight:bold'>{acc:.0f}%</div>"
-                f"({np.clip(acc - acc_naive, 0, None):.0f}% increase vs. naive)", unsafe_allow_html=True)
+                f"<div style='font-size:36pt;font-weight:bold'>{acc_val:.0f}%</div>"
+                f"({np.clip(acc_val - acc_naive, 0, None):.0f}% increase vs. naive)",
+                    unsafe_allow_html=True)
 
     return
 
 
 @st.cache()
-def make_df_top(df, df_results, groupby_cols, dt_start, dt_stop, cperc_thresh):
+def make_df_top(df, df_results, groupby_cols, dt_start, dt_stop, cperc_thresh,
+    metric="smape"):
     """
     """
 
@@ -908,11 +929,16 @@ def make_df_top(df, df_results, groupby_cols, dt_start, dt_stop, cperc_thresh):
         ys = np.hstack(dd["y_cv"].apply(np.hstack))[ix]
         yp = np.hstack(dd["yp_cv"].apply(np.hstack))[ix]
         
-        smape = calc_smape(ys, yp)
+        if metric == "smape":
+            error = calc_smape(ys, yp)
+        elif metric == "wape":
+            error = calc_wape(ys, yp)
+        else:
+            raise NotImplementedError
             
-        return smape
+        return error
 
-    metric = "smape_mean"
+    metric_name = f"{metric}_mean"
     df.index.name = "timestamp"
 
     dt_start = pd.Timestamp(dt_start).strftime("%Y-%m-%d")
@@ -932,10 +958,84 @@ def make_df_top(df, df_results, groupby_cols, dt_start, dt_stop, cperc_thresh):
             .groupby(groupby_cols, as_index=False, sort=False) \
             .apply(lambda dd: calc_period_metrics(dd, dt_start, dt_stop)) \
             .pipe(pd.DataFrame) \
-            .rename({None: "smape"}, axis=1) \
+            .rename({None: metric_name}, axis=1) \
             .reset_index()
-    df_grp_metrics["accuracy"] = 100 * (1-df_grp_metrics["smape"])
-    df_grp_metrics.drop(["index", "smape"], axis=1, inplace=True)
+    df_grp_metrics["accuracy"] = 100 * (1-df_grp_metrics[metric_name])
+    df_grp_metrics.drop(["index", metric_name], axis=1, inplace=True)
+
+    # combine, sort, and display
+    df_grp = df_grp_demand \
+        .merge(df_grp_metrics, on=groupby_cols, how="left") \
+        .sort_values(by="demand", ascending=False)
+    df_grp["cperc"] = df_grp["perc"].cumsum()
+    df_grp = df_grp.query(f"cperc <= {cperc_thresh}")
+    df_grp.rename({"perc": "% total demand", "accuracy": "% accuracy"}, axis=1, inplace=True)
+    df_grp.drop("cperc", axis=1, inplace=True)
+
+    # calc. summary row
+    df_grp_summary = df_grp.agg({"demand": sum, "% accuracy": "mean"})
+
+    df_grp_summary["% total demand"] = np.round(100 * df_grp_summary["demand"] / total_demand, 1)
+    df_grp_summary = pd.DataFrame(df_grp_summary).T[["demand", "% total demand", "% accuracy"]]
+    df_grp_summary.insert(0, "group by", ", ".join(groupby_cols))
+    df_grp_summary["% accuracy"] = df_grp_summary["% accuracy"].round(0)
+
+    df_grp["demand"] = df_grp["demand"].round(0)
+    df_grp["% total demand"] = df_grp["% total demand"].round(1)
+    df_grp["% accuracy"] = df_grp["% accuracy"].round(0)
+    df_grp.insert(0, "rank", np.arange(df_grp.shape[0]) + 1)
+
+    df_grp_summary["demand"] = df_grp_summary["demand"].round(0)
+    df_grp_summary["% total demand"] = df_grp_summary["% total demand"].round(1)
+    
+    return df_grp, df_grp_summary
+
+
+def make_ml_df_top(df, df_backtests, groupby_cols, dt_start, dt_stop, cperc_thresh, metric):
+    """
+    """
+
+    def calc_period_metrics(dd, dt_start, dt_stop):
+        """
+        """
+        dt_start = pd.Timestamp(dt_start)
+        dt_stop = pd.Timestamp(dt_stop)
+        ts = dd["timestamp"]
+        ix = (ts >= dt_start) & (ts <= dt_stop)
+            
+        ys = dd["target_value"][ix]
+        yp = dd["demand"][ix]
+
+        if metric == "smape":
+            error = calc_smape(ys, yp)
+        elif metric == "wape":
+            error = calc_wape(ys, yp)
+        else:
+            raise NotImplementedError
+            
+        return error
+
+    df.index.name = "timestamp"
+
+    dt_start = pd.Timestamp(dt_start).strftime("%Y-%m-%d")
+    dt_stop = pd.Timestamp(dt_stop).strftime("%Y-%m-%d")
+    df2 = df.query(f"timestamp >= '{dt_start}' and timestamp <= '{dt_stop}'")
+    total_demand = df2["demand"].sum()
+
+    # calculate per-group demand %
+    df_grp_demand = \
+        df2.groupby(groupby_cols, as_index=False, sort=False) \
+           .agg({"demand": sum})
+    df_grp_demand["perc"] = df_grp_demand["demand"] / total_demand * 100
+
+    # get the best models for each group
+    df_grp_metrics = \
+        df_backtests.groupby(groupby_cols, as_index=False, sort=False) \
+                    .apply(lambda dd: calc_period_metrics(dd, dt_start, dt_stop)) \
+                    .rename({None: metric}, axis=1)
+
+    df_grp_metrics["accuracy"] = 100 * (1-df_grp_metrics[metric])
+    df_grp_metrics.drop(metric, axis=1, inplace=True)
 
     # combine, sort, and display
     df_grp = df_grp_demand \
@@ -1001,6 +1101,7 @@ def panel_top_performers():
 
         with _cols[1]:
             dt_start = st.date_input("Start", value=dt_min, min_value=dt_min, max_value=dt_max)
+
         with _cols[2]:
             dt_stop = st.date_input("Stop", value=dt_max, min_value=dt_min, max_value=dt_max)
 
@@ -1014,7 +1115,7 @@ def panel_top_performers():
 
         with st.spinner("Processing top performers ..."):
             df_grp, df_grp_summary = \
-                make_df_top(df, df_results, groupby_cols, dt_start, dt_stop, cperc_thresh)
+                make_df_top(df, df_results, groupby_cols, dt_start, dt_stop, cperc_thresh, METRIC)
 
         st.write("#### Group Summary")
 
@@ -1188,6 +1289,8 @@ def download_afc_files():
     status_dict = parse_s3_json(state.report["afc"]["status_json_s3_path"])
     s3_export_path = status_dict["s3_export_path"]
     prefix = status_dict["prefix"]
+    horiz = state["report"]["afc"]["horiz"]
+    freq = state["report"]["afc"]["freq"]
 
     preds_s3_prefix = \
         f'{s3_export_path}/{prefix}/{prefix}_processed.csv'
@@ -1196,17 +1299,33 @@ def download_afc_files():
     backtests_s3_prefix = \
         f'{s3_export_path}/{prefix}/forecasted-values/Forecasts_{prefix}_BacktestExportJob_*.csv'
 
-    df_preds = wr.s3.read_csv(preds_s3_prefix,
+    _df_preds = wr.s3.read_csv(preds_s3_prefix,
         dtype={"channel": str, "family": str, "item_id": str})
-    df_preds["type"] = "fcast"
 
-    freq = FREQ_MAP_PD[state.report["afc"]["freq"]]
+    _preds = []
+    for _, dd in _df_preds.groupby(["channel", "family", "item_id"], as_index=False, sort=False):
+        dd.sort_values(by="timestamp", ascending=True, inplace=True)
+        if dd.shape[0] > horiz:
+            dd = dd.iloc[1:,:]
+        _preds.append(dd)
+
+    df_preds = pd.concat(_preds)
+    df_preds["type"] = "fcast"
+    df_preds["timestamp"] = pd.DatetimeIndex(df_preds["timestamp"])
+
+    df_actual = get_df_resampled(freq)
 
     df_preds = df_preds.append(
-            resample(df, freq)
+                df_actual
                 .reset_index()
                 .rename({"index": "timestamp"}, axis=1)
                 .assign(type='actual'))
+
+    df_preds["channel"] = df_preds["channel"].str.upper()
+    df_preds["family"] = df_preds["family"].str.upper()
+    df_preds["item_id"] = df_preds["item_id"].str.upper()
+
+    freq = FREQ_MAP_PD[state.report["afc"]["freq"]]
 
     df_results = wr.s3.read_csv(results_s3_prefix,
         dtype={"channel": str, "family": str, "item_id": str})
@@ -1221,7 +1340,8 @@ def download_afc_files():
         df_backtests["item_id"].str.split("@@", expand=True)
     df_backtests["timestamp"] = pd.DatetimeIndex(df_backtests["backtestwindow_end_time"])
     df_backtests["p10"] = np.clip(df_backtests["p10"], 0, None)
-    df_backtests["demand"] = np.clip(df_backtests["p50"], 0, None)
+    df_backtests["demand"] = np.round(np.clip(df_backtests["p50"], 0, None), 0)
+    df_backtests["target_value"] = df_backtests["target_value"].round(0)
 
     df_backtests = df_backtests[["timestamp", "channel", "family", "item_id",
                                  "demand", "p10", "p90", "target_value"]]
@@ -1236,8 +1356,12 @@ def panel_downloads():
     """
 
     df = state.report["data"].get("df", None)
+
     df_results = state.report["sfs"].get("df_results", None)
     df_preds = state.report["sfs"].get("df_preds", None)
+
+    df_results = state.report["afc"].get("df_results", None)
+    df_preds = state.report["afc"].get("df_preds", None)
 
     if df is None or df_results is None or df_preds is None:
         return
@@ -1350,6 +1474,7 @@ def panel_downloads():
 
                         wr.s3.to_csv(df_preds, afc_forecasts_path, compression="gzip", index=False)
                         state["report"]["afc"]["forecasts_s3_path"] = afc_forecasts_path
+                        afc_forecasts_s3_path = afc_forecasts_path
                     except NoFilesFound:
                         pass
                 else:
@@ -1482,7 +1607,7 @@ def panel_ml_launch():
 
             if sfn_status == "SUCCEEDED":
                 # download the results
-                with st.spinner("Loading ML forecasts and results..."):
+                with st.spinner("⏳ Loading ML forecasts and results..."):
                     df_preds, df_results, df_backtests = download_afc_files()
 
                     state["report"]["afc"]["df_preds"] = df_preds
@@ -1502,19 +1627,27 @@ def panel_ml_launch():
     return
 
 
-def calc_afc_ml_accuracies():
+def calc_afc_ml_accuracies(metric="smape"):
     """
     """
+
+    if metric == "smape":
+        metric_func = calc_smape
+    elif metric == "wape":
+        metric_func = calc_wape
+    else:
+        raise NotImplementedError
 
     df_backtests = state.report["afc"]["df_backtests"]
     df_accuracies = df_backtests \
         | px.groupby(["channel", "family", "item_id"], sort=False) \
-        | px.apply(lambda dd: calc_smape(dd["target_value"].clip(0, None),
-                                         dd["demand"].clip(0, None))) \
+        | px.apply(lambda dd: metric_func(dd["target_value"].clip(0, None),
+                                          dd["demand"].clip(0, None))) \
         | px.reset_index() \
-        | px.rename({0: "smape"}, axis=1) \
-        | px.assign(smape=px["smape"].clip(0,1)) \
-        | px.assign(acc=(1-px["smape"])*100)
+        | px.rename({0: metric}, axis=1) \
+        | px.assign(smape=px[metric].clip(0,1)) \
+        | px.assign(acc=(1-px[metric])*100)
+
     return df_accuracies
 
 
@@ -1523,34 +1656,130 @@ def panel_ml_forecast_summary():
     """
 
     df = state.report["data"].get("df", None)
+    df_preds = state.report["afc"].get("df_preds", None)
     df_results = state.report["afc"].get("df_results", None)
     df_backtests = state.report["afc"].get("df_backtests", None)
 
-    if df is None or df_results is None or df_backtests is None:
+    if df is None or df_results is None or df_backtests is None or \
+        df_preds is None:
         return
 
-    with st.beta_expander("Forecast Summary", expanded=False):
-        ml_acc = 100 - np.nanmean(df_results.query("backtest_window == 'Summary'")["WAPE"].clip(0,100))
-        df_accuracies = calc_afc_ml_accuracies()
+    with st.beta_expander("🎯 Forecast Summary", expanded=True):
+        df_accuracies = calc_afc_ml_accuracies(METRIC)
+        ml_acc = df_accuracies["acc"].mean()
 
-        st.write(df_backtests)
-        st.write(df_accuracies)
-        st.write(123)
-
-        _cols = st.beta_columns(3)
+        _cols = st.beta_columns([3,1])
 
         with _cols[0]:
+            st.write(dedent(f"""
+            The forecast error is calculated as the [symmetric
+            mean absolute percentage error
+            (SMAPE)](https://en.wikipedia.org/wiki/Symmetric_mean_absolute_percentage_error)
+            via sliding window backtesting. Forecast _accuracy_ is calculated as
+            `100-SMAPE` and is averaged across all timeseries to give the _overall accuracy_.
+
+            Note: Due to the limitations of the ML forecasting approach,
+            backtests were only generated over [the five most recent windows
+            before the
+            horizon](https://docs.aws.amazon.com/forecast/latest/dg/metrics.html#backtesting).
+            """))
+
+        with _cols[1]:
             st.markdown("#### Overall Accuracy")
             st.markdown(
                 f"<div style='font-size:36pt;font-weight:bold'>{ml_acc:.0f}%</div>",
                 unsafe_allow_html=True)
 
+    return
+
+
+def panel_ml_top_performers():
+    """
+    """
+
+    df = state.report["data"].get("df", None)
+    df_results = state.report["afc"].get("df_results", None)
+    horiz = state.report["afc"].get("horiz", None)
+    freq_out = state.report["afc"].get("freq", None)
+
+    if df is None or df_results is None:
+        return
+
+    df_backtests = state.report["afc"]["df_backtests"]
+
+    with st.beta_expander("🏆 Top Performers", expanded=True):
+        _write(f"""
+        Inspect the forecast accuracy of individual channels,
+        families, and item IDs (and each subset combination therein) for
+        specific groups of items during a given backtest period.
+        """)
+
+        st.write("#### Filters")
+
+        # dt_min and dt_max are the time boundaries of the backtesting
+        # for amazon forecast, this is relatively short
+        dt_min = df_backtests["timestamp"].min()
+        dt_max = df_backtests["timestamp"].max()
+
+        _cols = st.beta_columns([2,1,1])
+
+        with _cols[0]:
+            groupby_cols = st.multiselect("Group By",
+                ["channel", "family", "item_id"], ["channel", "family", "item_id"],
+                key="ml_top_perf_groupby")
+
         with _cols[1]:
-            pass
+            dt_start = st.date_input("Start", value=dt_min, min_value=dt_min,
+                    max_value=dt_max, key="ml_dt_start")
 
         with _cols[2]:
-            pass
+            dt_stop = st.date_input("Stop", value=dt_max, min_value=dt_min,
+                    max_value=dt_max, key="ml_dt_stop")
 
+        cperc_thresh = st.slider("Percentage of total demand",
+            step=5, value=80, format="%d%%", key="ml_perc_demand")
+
+        dt_start = dt_start.strftime("%Y-%m-%d")
+        dt_stop = dt_stop.strftime("%Y-%m-%d")
+
+        start = time.time()
+
+        with st.spinner("Processing top performers ..."):
+            df_grp, df_grp_summary = \
+                make_ml_df_top(df, df_backtests, groupby_cols, dt_start,
+                               dt_stop, cperc_thresh, METRIC)
+
+        st.write("#### Group Summary")
+
+        with st.spinner("Loading **Summary** table"):
+            display_ag_grid(df_grp_summary, auto_height=True,
+                comma_cols=("demand",))
+
+        st.write("#### Groups")
+        with st.spinner("Loading **Groups** table ..."):
+            display_ag_grid(df_grp, paginate=True, comma_cols=("demand",))
+
+        st.text(f"(completed in {format_timespan(time.time() - start)})")
+
+        if st.button("Export", key="ml_top_perf_export_btn"):
+            with st.spinner(":hourglass_flowing_sand: Exporting **Top Performers** ..."):
+                start = time.time()
+
+                # write the dataframe to s3
+                now_str = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+                basename = os.path.basename(state["report"]["data"]["path"])
+                s3_afc_export_path = state["report"]["afc"]["s3_afc_export_path"]
+                s3_path = f'{s3_afc_export_path}/{basename}_{now_str}_afc-top-performers.csv.gz'
+
+                wr.s3.to_csv(df_grp, s3_path, compression="gzip", index=False)
+
+                # generate presigned s3 url for user to download
+                signed_url = create_presigned_url(s3_path)
+
+                st.info(textwrap.dedent(f"""
+                Download the top performers file [here]({signed_url})  
+                `(completed in {format_timespan(time.time() - start)})`
+                """))
     return
 
 
@@ -1610,8 +1839,6 @@ def panel_ml_visualization():
 
         df_plot = df_ml_preds[pred_mask]
         _df_backtests = df_ml_backtests[backtest_mask]
-
-        st.write(_df_backtests)
 
         if len(df_plot) > 0:
             # display the line chart
@@ -1860,6 +2087,7 @@ if __name__ == "__main__":
 
     panel_ml_launch()
     panel_ml_forecast_summary()
+    panel_ml_top_performers()
     panel_ml_visualization()
 
     if "df" in state["report"]["data"]:
