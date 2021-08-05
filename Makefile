@@ -32,3 +32,7 @@ SfsStack:
 	cd cdk ; \
 		cdk deploy $@ --parameters $@:emailAddress=${EMAIL} \
 		--parameters $@:instanceType=${INSTANCE_TYPE}
+SfsBootstrapStack:
+	cd cdk ; \
+		cdk deploy $@ --parameters $@:emailAddress=${EMAIL} \
+		--parameters $@:instanceType=${INSTANCE_TYPE}

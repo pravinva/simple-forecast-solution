@@ -755,7 +755,7 @@ def panel_launch():
 
                 with _cols[2]:
                     backend = st.selectbox("Compute Backend",
-                                    ["lambdamap", "local"], 0, _format_func)
+                                    ["lambdamap"], 0, _format_func)
 
                 btn_launch = st.form_submit_button("Launch")
 
