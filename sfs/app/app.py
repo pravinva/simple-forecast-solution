@@ -898,7 +898,7 @@ def panel_accuracy():
             fig.update_traces(textinfo="percent+label")
             st.plotly_chart(fig)
 
-        acc_val = (1 - df_acc[METRIC].mean()) * 100.
+        acc_val = (1 - np.nanmean(df_acc[METRIC])) * 100.
         acc_naive = (1 - naive_err.err_mean) * 100.
 
         with _cols[2]:
@@ -973,7 +973,7 @@ def make_df_top(df, df_results, groupby_cols, dt_start, dt_stop, cperc_thresh,
     df_grp.drop("cperc", axis=1, inplace=True)
 
     # calc. summary row
-    df_grp_summary = df_grp.agg({"demand": sum, "% accuracy": "mean"})
+    df_grp_summary = df_grp.agg({"demand": sum, "% accuracy": np.nanmean})
 
     df_grp_summary["% total demand"] = np.round(100 * df_grp_summary["demand"] / total_demand, 1)
     df_grp_summary = pd.DataFrame(df_grp_summary).T[["demand", "% total demand", "% accuracy"]]
@@ -1047,7 +1047,7 @@ def make_ml_df_top(df, df_backtests, groupby_cols, dt_start, dt_stop, cperc_thre
     df_grp.drop("cperc", axis=1, inplace=True)
 
     # calc. summary row
-    df_grp_summary = df_grp.agg({"demand": sum, "% accuracy": "mean"})
+    df_grp_summary = df_grp.agg({"demand": sum, "% accuracy": np.nanmean})
 
     df_grp_summary["% total demand"] = np.round(100 * df_grp_summary["demand"] / total_demand, 1)
     df_grp_summary = pd.DataFrame(df_grp_summary).T[["demand", "% total demand", "% accuracy"]]

@@ -1140,20 +1140,23 @@ def calc_smape(y, yp, axis=0, smooth=True):
     where, 0.0 <= sMAPE <= 1.0 (lower is better)
     
     """
-
-    if smooth:
-        eps = 1 / y.shape[0]
-        y2, yp2 = y + eps, yp + eps
-    else:
-        y2, yp2 = y, yp
-
     try:
-        smape = np.divide(np.nansum(np.abs(y2 - yp2), axis=axis),
-                          np.nansum(y2 + yp2, axis=axis))
+        eps = 1 / y.shape[0]
+
+        if smooth:
+            y2, yp2 = y + eps, yp + eps
+        else:
+            y2, yp2 = y, yp
+
+        try:
+            smape = np.divide(np.nansum(np.abs(y2 - yp2), axis=axis),
+                              np.nansum(y2 + yp2, axis=axis))
+        except ZeroDivisionError:
+            smape = 0.0
     except ZeroDivisionError:
-        smape = 0.0
+        return np.nan
         
-    return smape.round(4)
+    return np.round(smape, 4)
 
 
 def calc_wape(y, yp):
