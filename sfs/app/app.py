@@ -179,18 +179,6 @@ def display_progress(wait_for, desc=None):
     return
 
 
-def get_df_resampled(freq):
-    df = state["report"]["data"].get("df", None)
-    df2 = state["report"]["data"].get("df2", None)
-
-    if df2 is None:
-        df2 = resample(df, freq)
-
-    state["report"]["data"]["df2"] = df2
-
-    return df2
-
-
 def run_lambdamap(df, horiz, freq, max_lambdas=1000):
     """
     """
@@ -226,6 +214,18 @@ def run_lambdamap(df, horiz, freq, max_lambdas=1000):
         wait_for = executor.map(run_cv_select, payloads)
 
     return wait_for
+
+
+def get_df_resampled(freq):
+    df = state["report"]["data"].get("df", None)
+    df2 = state["report"]["data"].get("df2", None)
+
+    if df2 is None:
+        df2 = resample(df, freq)
+
+    state["report"]["data"]["df2"] = df2
+
+    return df2
 
 
 def display_ag_grid(df, auto_height=False, paginate=False,
