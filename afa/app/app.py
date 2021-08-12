@@ -1506,7 +1506,11 @@ def panel_downloads():
                     afa_backtests_s3_path = \
                         f'{s3_afa_export_path}/{basename}_{now_str}_afa-backtests.csv.gz'
 
-                    wr.s3.to_csv(df_results, afa_backtests_s3_path,
+                    keep_cols = \
+                        ["channel", "family", "item_id", "model_type",
+                         "smape_mean"]
+
+                    wr.s3.to_csv(df_results[keep_cols], afa_backtests_s3_path,
                                  compression="gzip", index=False)
 
                     state["report"]["afa"]["backtests_s3_path"] = \
