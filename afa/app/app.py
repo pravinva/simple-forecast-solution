@@ -1319,7 +1319,7 @@ def panel_visualization():
                   .apply(np.nanmean)
 
             fig.add_trace(go.Scatter(x=df_backtest.index, y=df_backtest.yp, mode="lines",
-                name="backtest", line_dash="dot", line_color="black"))
+                name="backtest (mean)", line_dash="dot", line_color="black"))
                 
     #       fig.update_layout(
     #           xaxis={
@@ -1510,7 +1510,13 @@ def panel_downloads():
                         ["channel", "family", "item_id", "model_type",
                          "smape_mean"]
 
-                    wr.s3.to_csv(df_results[keep_cols], afa_backtests_s3_path,
+                    df_backtests = df_results[GROUP_COLS + ["y_cv", "yp_cv"]].copy()
+
+                    # convert df_results to csv-friendly backtests
+                    df_backtests["y_cv"] = df_backtests["y_cv"].apply(lambda xs: xs.tolist())
+                    df_backtests["yp_cv"] = df_backtests["yp_cv"].apply(lambda xs: xs.tolist())
+
+                    wr.s3.to_csv(df_backtests, afa_backtests_s3_path,
                                  compression="gzip", index=False)
 
                     state["report"]["afa"]["backtests_s3_path"] = \
