@@ -58,7 +58,7 @@ import gzip
 from collections import OrderedDict, deque, namedtuple
 from concurrent import futures
 from urllib.parse import urlparse
-from toolz.itertoolz import partition
+from toolz.itertoolz import partition_all
 from botocore.exceptions import ClientError
 from sspipe import p, px
 from streamlit import session_state as state
@@ -174,7 +174,7 @@ def process_data(df, freq, chunksize=None):
 
     all_results = []
 
-    for chunk in stqdm(partition(chunksize, groups), total=total, desc="Progress"):
+    for chunk in stqdm(partition_all(chunksize, groups), total=total, desc="Progress"):
         results = Parallel(n_jobs=-1)(delayed(_resample)(dd, freq) for _, dd in chunk)
         all_results.extend(results)
 
@@ -278,7 +278,7 @@ def get_df_resampled(df, freq):
 
     all_results = []
 
-    for chunk in stqdm(partition(chunksize, groups), total=total,
+    for chunk in stqdm(partition_all(chunksize, groups), total=total,
         desc="Batch Preparation Progress"):
         results = Parallel(n_jobs=-1)(delayed(_resample)(dd, freq) for _, dd in chunk)
         all_results.extend(results)
@@ -1506,7 +1506,7 @@ def panel_downloads():
                     afa_backtests_s3_path = \
                         f'{s3_afa_export_path}/{basename}_{now_str}_afa-backtests.csv.gz'
 
-                    wr.s3.to_csv(df_preds, afa_backtests_s3_path,
+                    wr.s3.to_csv(df_results, afa_backtests_s3_path,
                                  compression="gzip", index=False)
 
                     state["report"]["afa"]["backtests_s3_path"] = \
