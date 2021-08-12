@@ -29,34 +29,34 @@ Asia Pacific (Sydney) | ap-southeast-2 | [![Launch Stack](https://cdn.rawgit.com
    - a subscription confirmation email with the subject heading "AWS Notification - Subscription Confirmation" from `AWS Notifications <no-reply@sns.amazonaws.com>`, by clicking "Confirm subscription" in the message body, you will recieve e-mails notifying when the AFA dashboard is deployed and when ML forecasting jobs are complete:
    > ![](images/sns-email-confirm.png) 
        
-        **This must be accepted prior to the deployment completing, therefore we advise that you click "Confirm subscription" as soon as you receive the e-mail.**<br/><br/>
-        Otherwise, if the deployment completes before confirming the subscription, you will not receive notifications and will need to monitor the deployment progress and access the application via the AWS Console, as follows:  
-        
-        1. Enter "Cloudformation" in the AWS Console search bar and select
-        "CloudFormation" from the results list:
-        
-        > ![](images/aws-console-cfn.png)
-        
-        2. Deployment is complete when the four stacks below reach a
-        "CREATE_COMPLETE" status:
-        
-        > ![](images/aws-console-cfn-stacks.png) 
-        
-        3. Once the deployment is complete, navigate to the Amazon SageMaker
-        console via the AWS Console search bar:
-        
-        > ![](images/aws-console-sagemaker.png)
-        
-        4. Select "Open JupyterLab" in the list of Notebook instances:
-        
-        > ![](images/sagemaker-notebook-list.png)
-        
-        5. Open "Landing_Page.ipynb" in the file list on the left and if prompted
-        with a "Select Kernel" window, click the
-        "Select" button. This will bring you to the AFA landing page, which
-        contains instructions on getting started with your forecasting.
-        
-        > ![](images/landing-page-example.png)
+    **This must be accepted prior to the deployment completing, therefore we advise that you click "Confirm subscription" as soon as you receive the e-mail.**<br/><br/>
+    Otherwise, if the deployment completes before confirming the subscription, you will not receive notifications and will need to monitor the deployment progress and access the application via the AWS Console, as follows:  
+
+    1. Enter "Cloudformation" in the AWS Console search bar and select
+    "CloudFormation" from the results list:
+
+    > ![](images/aws-console-cfn.png)
+
+    2. Deployment is complete when the four stacks below reach a
+    "CREATE_COMPLETE" status:
+
+    > ![](images/aws-console-cfn-stacks.png) 
+
+    3. Once the deployment is complete, navigate to the Amazon SageMaker
+    console via the AWS Console search bar:
+
+    > ![](images/aws-console-sagemaker.png)
+
+    4. Select "Open JupyterLab" in the list of Notebook instances:
+
+    > ![](images/sagemaker-notebook-list.png)
+
+    5. Open "Landing_Page.ipynb" in the file list on the left and if prompted
+    with a "Select Kernel" window, click the
+    "Select" button. This will bring you to the AFA landing page, which
+    contains instructions on getting started with your forecasting.
+
+    > ![](images/landing-page-example.png)
         
 7. The deployment will complete in 15-20mins, click the URL in the notification
    e-mail, which will bring you to the AFA landing page (if you see a number of
