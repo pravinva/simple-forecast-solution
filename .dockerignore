@@ -1,0 +1,13 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+
+.git
+.cache
+.aws-sam
+*.pyc
+*.pyo
+*.pyd
+__pycache__
+node_modules
+aws
+awscliv2.zip
