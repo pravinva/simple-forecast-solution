@@ -17,19 +17,53 @@ Region name | Region code | Launch
 --- | --- | ---
 Asia Pacific (Sydney) | ap-southeast-2 | [![Launch Stack](https://cdn.rawgit.com/buildkite/cloudformation-launch-stack-button-svg/master/launch-stack.svg)](https://ap-southeast-2.console.aws.amazon.com/cloudformation/home?region=ap-southeast-2#/stacks/quickcreate?templateUrl=https%3A%2F%2Fsfs-public.s3.ap-southeast-2.amazonaws.com%2Ftemplate.yaml&stackName=AfaBootstrapStack&param_instanceType=ml.t2.medium)
 
-3. Specify your email address as a cloudformation parameter (for deployment notifications).
-4. Acknowledge and Accept the cloud formation deployment.
-5. During the deployment, you will recieve two emails:
-   - a subscription confirmation email with the subject heading "AWS Notification - Subscription Confirmation", by clicking "Confirm subscription" 
-     in the message body, you will recieve e-mails notifying when the AFA dashboard is deployed and when ML forecasting jobs are complete.
-   - a notification e-mail containing the URL to the AFA landing page.
-6. The deployment will complete in 15-20mins, click the URL in the notification
+3. Enter your e-mail address in the "Parameters" section of the form, as shown below:
+
+    > ![](images/cfn-email-parameter.png)
+
+5. Acknowledge and Accept the cloudformation deployment, and click "Create stack" (which will begin deployment) as shown below:
+
+    > ![](images/cfn-accept.png)
+
+6. During the deployment, you will recieve an e-mail:
+   - a subscription confirmation email with the subject heading "AWS Notification - Subscription Confirmation" from `AWS Notifications <no-reply@sns.amazonaws.com>`, by clicking "Confirm subscription" in the message body, you will recieve e-mails notifying when the AFA dashboard is deployed and when ML forecasting jobs are complete:
+   > ![](images/sns-email-confirm.png) 
+       
+        **This must be accepted prior to the deployment completing, therefore we advise that you click "Confirm subscription" as soon as you receive the e-mail.**<br/><br/>
+        Otherwise, if the deployment completes before confirming the subscription, you will not receive notifications and will need to monitor the deployment progress and access the application via the AWS Console, as follows:  
+        
+        1. Enter "Cloudformation" in the AWS Console search bar and select
+        "CloudFormation" from the results list:
+        
+        > ![](images/aws-console-cfn.png)
+        
+        2. Deployment is complete when the four stacks below reach a
+        "CREATE_COMPLETE" status:
+        
+        > ![](images/aws-console-cfn-stacks.png) 
+        
+        3. Once the deployment is complete, navigate to the Amazon SageMaker
+        console via the AWS Console search bar:
+        
+        > ![](images/aws-console-sagemaker.png)
+        
+        4. Select "Open JupyterLab" in the list of Notebook instances:
+        
+        > ![](images/sagemaker-notebook-list.png)
+        
+        5. Open "Landing_Page.ipynb" in the file list on the left and if prompted
+        with a "Select Kernel" window, click the
+        "Select" button. This will bring you to the AFA landing page, which
+        contains instructions on getting started with your forecasting.
+        
+        > ![](images/landing-page-example.png)
+        
+7. The deployment will complete in 15-20mins, click the URL in the notification
    e-mail, which will bring you to the AFA landing page (if you see a number of
-   tiled icons, simply double-click `Landing_Page.ipynb` on the left navigation
-   panel).
-7. When arriving at the landing page, you may be presented with the prompt
-   "Select Kernel"–simply click "Select"–which will keep the default selection.
-   The Landing Page contains instructions on how to use the Amazon Forecast
+   tiled icons, Open "Landing_Page.ipynb" in the file list on the left and if prompted
+   with a "Select Kernel" window, click the "Select" button).
+   
+8. The Landing Page contains instructions on how to use the Amazon Forecast
    Accelerator application to generate forecasts and validate their performance.
 
 ## Important – AWS Resource Requirements
