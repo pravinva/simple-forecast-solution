@@ -272,13 +272,14 @@ def run_lambdamap(df, horiz, freq):
 
 
 def get_df_resampled(df, freq):
-    chunksize = 1000
     groups = df.groupby(["channel", "family", "item_id"], sort=False)
-    total = int(np.ceil(groups.ngroups / chunksize))
+    chunksize = min(1000, groups.ngroups)
+    total = int(np.ceil(float(groups.ngroups) / chunksize))
 
     all_results = []
 
-    for chunk in stqdm(partition(chunksize, groups), total=total, desc="Batch Preparation Progress"):
+    for chunk in stqdm(partition(chunksize, groups), total=total,
+        desc="Batch Preparation Progress"):
         results = Parallel(n_jobs=-1)(delayed(_resample)(dd, freq) for _, dd in chunk)
         all_results.extend(results)
 
@@ -1394,7 +1395,11 @@ def download_afc_files():
     df_preds["type"] = "fcast"
     df_preds["timestamp"] = pd.DatetimeIndex(df_preds["timestamp"])
 
-    df_actual = get_df_resampled(freq)
+
+    df_actual = state["report"]["data"].get("df2", None)
+
+    if df_actual is None:
+        df_actual = get_df_resampled(df, freq)
 
     df_preds = df_preds.append(
                 df_actual
