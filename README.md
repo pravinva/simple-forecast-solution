@@ -11,11 +11,16 @@
 ## :building_construction: Installation
 
 1. Create/Login to AWS Account (a new AWS account is recommended for simplicity and testing purposes)
-2. Click on a "Launch Stack" button below:
+2. Click on a "Launch Stack" button corresponding to your nearest AWS Region below:
 
 Region name | Region code | Launch
 --- | --- | ---
+US East (Ohio) | us-east-2 | [![Launch Stack](https://cdn.rawgit.com/buildkite/cloudformation-launch-stack-button-svg/master/launch-stack.svg)](https://us-east-2.console.aws.amazon.com/cloudformation/home?region=us-east-2#/stacks/quickcreate?templateUrl=https%3A%2F%2Fsfs-public.s3.ap-southeast-2.amazonaws.com%2Ftemplate.yaml&stackName=AfaBootstrapStack&param_instanceType=ml.t2.medium)
+US West (N. California) | us-west-1 | [![Launch Stack](https://cdn.rawgit.com/buildkite/cloudformation-launch-stack-button-svg/master/launch-stack.svg)](https://us-west-1.console.aws.amazon.com/cloudformation/home?region=us-west-1#/stacks/quickcreate?templateUrl=https%3A%2F%2Fsfs-public.s3.ap-southeast-2.amazonaws.com%2Ftemplate.yaml&stackName=AfaBootstrapStack&param_instanceType=ml.t2.medium)
 Asia Pacific (Sydney) | ap-southeast-2 | [![Launch Stack](https://cdn.rawgit.com/buildkite/cloudformation-launch-stack-button-svg/master/launch-stack.svg)](https://ap-southeast-2.console.aws.amazon.com/cloudformation/home?region=ap-southeast-2#/stacks/quickcreate?templateUrl=https%3A%2F%2Fsfs-public.s3.ap-southeast-2.amazonaws.com%2Ftemplate.yaml&stackName=AfaBootstrapStack&param_instanceType=ml.t2.medium)
+Asia Pacific (Singapore) | ap-southeast-1 | [![Launch Stack](https://cdn.rawgit.com/buildkite/cloudformation-launch-stack-button-svg/master/launch-stack.svg)](https://ap-southeast-1.console.aws.amazon.com/cloudformation/home?region=ap-southeast-1#/stacks/quickcreate?templateUrl=https%3A%2F%2Fsfs-public.s3.ap-southeast-2.amazonaws.com%2Ftemplate.yaml&stackName=AfaBootstrapStack&param_instanceType=ml.t2.medium)
+EU (Frankfurt) | eu-central-1 | [![Launch Stack](https://cdn.rawgit.com/buildkite/cloudformation-launch-stack-button-svg/master/launch-stack.svg)](https://eu-central-1.console.aws.amazon.com/cloudformation/home?region=eu-central-1#/stacks/quickcreate?templateUrl=https%3A%2F%2Fsfs-public.s3.ap-southeast-2.amazonaws.com%2Ftemplate.yaml&stackName=AfaBootstrapStack&param_instanceType=ml.t2.medium)
+EU (Ireland) | eu-west-1 | [![Launch Stack](https://cdn.rawgit.com/buildkite/cloudformation-launch-stack-button-svg/master/launch-stack.svg)](https://eu-west-1.console.aws.amazon.com/cloudformation/home?region=eu-west-1#/stacks/quickcreate?templateUrl=https%3A%2F%2Fsfs-public.s3.ap-southeast-2.amazonaws.com%2Ftemplate.yaml&stackName=AfaBootstrapStack&param_instanceType=ml.t2.medium)
 
 3. Enter your e-mail address in the "Parameters" section of the form, as shown below:
 
