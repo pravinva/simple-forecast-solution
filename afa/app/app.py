@@ -1516,6 +1516,10 @@ def panel_downloads():
                     df_backtests["y_cv"] = df_backtests["y_cv"].apply(lambda xs: xs.tolist())
                     df_backtests["yp_cv"] = df_backtests["yp_cv"].apply(lambda xs: xs.tolist())
 
+                    df_backtests.rename(
+                        {"y_cv": "bt_actuals", "yp_cv": "bt_forecast"}, axis=1,
+                        inplace=True)
+
                     wr.s3.to_csv(df_backtests, afa_backtests_s3_path,
                                  compression="gzip", index=False)
 
@@ -1562,13 +1566,16 @@ def panel_downloads():
                 if afc_forecasts_s3_path is None:
                     try:
                         df_preds = state["report"]["afc"]["df_preds"]
+                        df_preds["demand"] = np.ceil(df_preds["demand"].clip(0).fillna(0.0))
                         now_str = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
                         basename = os.path.basename(state["report"]["data"]["path"])
 
                         afc_forecasts_path = \
                             f"{s3_afc_export_path}/{basename}_{now_str}_afc-forecasts.csv.gz"
 
-                        wr.s3.to_csv(df_preds, afc_forecasts_path, compression="gzip", index=False)
+                        wr.s3.to_csv(
+                            df_preds[["timestamp","channel", "family", "item_id", "demand", "type"]],
+                            afc_forecasts_path, compression="gzip", index=False)
                         state["report"]["afc"]["forecasts_s3_path"] = afc_forecasts_path
                         afc_forecasts_s3_path = afc_forecasts_path
                     except NoFilesFound:
@@ -1587,7 +1594,7 @@ def panel_downloads():
 
                 if afc_backtests_s3_path is None:
                     try:
-                        df_results = state["report"]["afc"]["df_results"]
+                        df_backtests = state["report"]["afc"]["df_backtests"]
 
                         now_str = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
                         basename = os.path.basename(state["report"]["data"]["path"])
@@ -1595,7 +1602,10 @@ def panel_downloads():
                         afc_backtests_s3_path = \
                             f"{s3_afc_export_path}/{basename}_{now_str}_afc-backtests.csv.gz"
 
-                        wr.s3.to_csv(df_results, afc_backtests_s3_path, compression="gzip", index=False)
+                        wr.s3.to_csv(
+                            df_backtests.rename({"demand": "bt_forecasts", "target_value": "bt_actuals"}, axis=1)
+                                        .drop(["p10", "p90"], axis=1),
+                            afc_backtests_s3_path, compression="gzip", index=False)
                         state["report"]["afc"]["backtests_s3_path"] = afc_backtests_s3_path
                     except NoFilesFound:
                         pass
@@ -1609,7 +1619,45 @@ def panel_downloads():
                 `(completed in {format_timespan(time.time()-start)})`.  
                 """))
 
+    with st.beta_expander("ℹ️ Export File Formats", expanded=True):
+        st.write(dedent("""
+        #### Common columns
 
+        - `timestamp` – String, date of the demand, in the format `YYYY-mm-dd` (e.g. "2020-12-25")
+        - `channel` – String, the originating store or platform of the demand (e.g. Website, Store-22)
+        - `family` – String, the category of the item (e.g. Shirts)
+        - `item_id` – String, the unique item identifier/SKU code (e.g. SKU29292)
+        - `demand` – Numeric, the demand amount of the item, which must be >= 0 (e.g. 413)
+        - `type` – String
+            - "actual" when `demand` is the historic demand
+            - "fcast" when `demand` is the forecasted demand
+
+        #### Statistical Forecasts
+
+        - Forecasts file columns
+            - `timestamp`, `channel`, `family`, `item_id`, `demand`, `type`
+
+        - Backtests file columns
+
+            - `channel`, `family`, `item_id`
+            - `bt_actuals` – list of sliding window actuals
+            - `bt_forecast` – list of sliding window forecasts
+            - The `timestamp` column is omitted to reduce the file size,
+              however, the first and last sliding windows correspond to the
+              first and last timestamps of the historic demand, respectively.
+
+        #### Machine Learning Forecasts
+
+        - Forecasts file columns
+            - `timestamp`, `channel`, `family`, `item_id`, `demand`, `type`
+
+        - Backtests file columns
+            - `timestamp`, `channel`, `family`, `item_id`
+            - `bt_actuals` – the actual demand for the backtest period
+            - `bt_forecast` – the forecasted demand for the backtest period
+
+        ####
+        """), unsafe_allow_html=True)
 
     return
 
