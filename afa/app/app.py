@@ -1640,8 +1640,11 @@ def panel_downloads():
         - Backtests file columns
 
             - `channel`, `family`, `item_id`
-            - `bt_actuals` – list of sliding window actuals
-            - `bt_forecast` – list of sliding window forecasts
+            - `bt_actuals` – list of sliding window actuals, each window is the 
+                length of the forecast horizon.
+            - `bt_forecast` – list of sliding window forecasts, each window
+                is the length of the forecast horizon and has a 1:1 correspondence
+                with the windows in `bt_actuals`.
             - The `timestamp` column is omitted to reduce the file size,
               however, the first and last sliding windows correspond to the
               first and last timestamps of the historic demand, respectively.
