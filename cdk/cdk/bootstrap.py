@@ -79,8 +79,12 @@ class BootstrapStack(cdk.Stack):
         ))
 
         ami = ec2.MachineImage.generic_linux({
+            "us-east-1": "ami-0c2b8ca1dad447f8a",
             "us-west-1": "ami-04b6c97b14c54de18",
-            "ap-southeast-2": "ami-0aab712d6363da7f9"
+            "ap-southeast-2": "ami-0aab712d6363da7f9",
+            "ap-southeast-1": "ami-0f511ead81ccde020",
+            "eu-central-1": "ami-0453cb7b5f2b7fca2",
+            "eu-west-1": "ami-02b4e72b17337d6c1"
         })
 
         user_data = ec2.UserData.for_linux()
