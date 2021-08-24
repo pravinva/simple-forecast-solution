@@ -90,7 +90,7 @@ class BootstrapStack(cdk.Stack):
         user_data = ec2.UserData.for_linux()
         user_data.add_commands(
             dedent(f"""
-            set -x -v -e
+            set -x -v
 
             # install git
             yum install -y git
@@ -121,29 +121,34 @@ class BootstrapStack(cdk.Stack):
             conda activate py39
 
             # install the aws-cdk cli tool (req. for running `cdk deploy ...`)
-            npm i -g aws-cdk@1.116.0 &>/dev/null
+            npm i --silent --quiet -g aws-cdk@1.116.0
+
+            cd ~
 
             # deploy the AfaLambdaMapStack (required by the dashboard code)
             git clone https://github.com/aws-samples/lambdamap.git
             cd ./lambdamap/lambdamap_cdk/
-            pip install -r ./requirements.txt
-            cdk bootstrap aws://{self.account}/{self.region} &>/dev/null
+            pip install -q -r ./requirements.txt
+            cdk bootstrap aws://{self.account}/{self.region}
             nohup cdk deploy --require-approval never \
                 --context stack_name=AfaLambdaMapStack \
                 --context function_name=AfaLambdaMapFunction \
                 --context memory_size=256 \
                 --context extra_cmds='git clone https://github.com/aws-samples/simple-forecast-solution.git ; cd ./simple-forecast-solution/ ; git checkout main ; pip install -e .' &
+            
+            cd ~
 
             git clone https://github.com/aws-samples/simple-forecast-solution.git
-            cd ./simple-forecast-solution
-            git checkout main
-            cd ./cdk
-            pip install -r ./requirements.txt
-            cdk bootstrap aws://{self.account}/{self.region} &>/dev/null
+            cd ~/simple-forecast-solution/cdk
+            pip install -q -r ./requirements.txt
             nohup cdk deploy AfaStack \
                 --parameters AfaStack:emailAddress={email_address.value_as_string} \
                 --parameters AfaStack:instanceType={instance_type} \
                 --require-approval never &
+            
+            wait # wait for the cdk stacks to deploy before shutting down
+
+            shutdown
             """)
         )
 
