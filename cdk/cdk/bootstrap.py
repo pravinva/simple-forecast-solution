@@ -30,7 +30,7 @@ class BootstrapStack(cdk.Stack):
 
         ec2_role = iam.Role(
             self,
-            "AfaInstanceRole",
+            "{construct_id}-{self.region}-AfaInstanceRole",
             assumed_by=iam.ServicePrincipal("ec2.amazonaws.com"),
             managed_policies=[
                 iam.ManagedPolicy.from_aws_managed_policy_name("IAMFullAccess"),
@@ -39,7 +39,7 @@ class BootstrapStack(cdk.Stack):
                 iam.ManagedPolicy.from_aws_managed_policy_name("AmazonSSMManagedInstanceCore"),
                 iam.ManagedPolicy.from_aws_managed_policy_name("CloudWatchAgentServerPolicy")
             ])
-
+        
         ec2_role.add_to_policy(iam.PolicyStatement(
             resources=[f"arn:aws:cloudformation:{self.region}:{self.account}:*"],
             actions=["cloudformation:*"]
@@ -90,7 +90,7 @@ class BootstrapStack(cdk.Stack):
         user_data = ec2.UserData.for_linux()
         user_data.add_commands(
             dedent(f"""
-            set -x -v
+            set -x
 
             # install git
             yum install -y git
@@ -105,9 +105,7 @@ class BootstrapStack(cdk.Stack):
             # install miniconda into ~/SageMaker/miniconda, which will make it
             # persistent
             CONDA_DIR=~/miniconda/
-
             mkdir -p "$CONDA_DIR"
-
             wget -q https://repo.anaconda.com/miniconda/Miniconda3-py39_4.10.3-Linux-x86_64.sh \
                 -O "$CONDA_DIR/miniconda.sh"
             bash "$CONDA_DIR/miniconda.sh" -b -u -p "$CONDA_DIR"
@@ -115,38 +113,36 @@ class BootstrapStack(cdk.Stack):
 
             # use local miniconda distro
             source "$CONDA_DIR/bin/activate"
-
             # install custom conda environment(s)
             conda create -y -q -n py39 python=3.9 nodejs=14
             conda activate py39
-
             # install the aws-cdk cli tool (req. for running `cdk deploy ...`)
-            npm i --silent --quiet -g aws-cdk@1.116.0
+
+            npm i --silent --quiet --no-progress -g aws-cdk@1.116.0
 
             cd ~
-
-            # deploy the AfaLambdaMapStack (required by the dashboard code)
             git clone https://github.com/aws-samples/lambdamap.git
             cd ./lambdamap/lambdamap_cdk/
             pip install -q -r ./requirements.txt
             cdk bootstrap aws://{self.account}/{self.region}
-            nohup cdk deploy --require-approval never \
+            nohup cdk deploy \
+                --require-approval never \
                 --context stack_name=AfaLambdaMapStack \
                 --context function_name=AfaLambdaMapFunction \
                 --context memory_size=256 \
-                --context extra_cmds='git clone https://github.com/aws-samples/simple-forecast-solution.git ; cd ./simple-forecast-solution/ ; git checkout main ; pip install -e .' &
-            
-            cd ~
+                --context extra_cmds='git clone https://github.com/aws-samples/simple-forecast-solution.git ; cd ./simple-forecast-solution/ ; git checkout main ; pip install -e .'
 
+            cd ~
             git clone https://github.com/aws-samples/simple-forecast-solution.git
-            cd ~/simple-forecast-solution/cdk
+            cd ./simple-forecast-solution/cdk
             pip install -q -r ./requirements.txt
+            cdk bootstrap aws://{self.account}/{self.region}
             nohup cdk deploy AfaStack \
+                --require-approval never \
                 --parameters AfaStack:emailAddress={email_address.value_as_string} \
-                --parameters AfaStack:instanceType={instance_type} \
-                --require-approval never &
+                --parameters AfaStack:instanceType={instance_type}
             
-            wait # wait for the cdk stacks to deploy before shutting down
+            sleep 10
 
             shutdown
             """)
