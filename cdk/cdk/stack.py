@@ -35,8 +35,6 @@ class AfaStack(cdk.Stack):
                 description="(Required) SageMaker Notebook instance type on which to host "
                 "the AFA dashboard (e.g. ml.t2.medium, ml.t3.xlarge, ml.t3.2xlarge, ml.m4.4xlarge)")
 
-        region = os.environ["CDK_DEFAULT_REGION"]
-        
         #
         # S3 Bucket
         #
@@ -68,7 +66,7 @@ class AfaStack(cdk.Stack):
         # SNS topic for email notification
         #
         topic = \
-            sns.Topic(self, f"{construct_id}-NotificationTopic",
+            sns.Topic(self, f"NotificationTopic",
                 topic_name=f"{construct_id}-NotificationTopic")
 
         topic.add_subscription(
@@ -78,7 +76,7 @@ class AfaStack(cdk.Stack):
 
         sns_lambda_role = iam.Role(
             self,
-            f"{construct_id}-SnsEmailLambdaRole-{region}",
+            f"SnsEmailLambdaRole",
             assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
             managed_policies=[
                 iam.ManagedPolicy.from_aws_managed_policy_name("AmazonSNSFullAccess")
@@ -86,7 +84,8 @@ class AfaStack(cdk.Stack):
 
         self.sns_lambda_role = sns_lambda_role
 
-        sns_lambda = lambda_.Function(self, f"{construct_id}-SnsEmailLambda",
+        sns_lambda = lambda_.Function(self,
+            f"SnsEmailLambda",
             runtime=lambda_.Runtime.PYTHON_3_8,
             environment={"TOPIC_ARN": f"arn:aws:sns:{self.region}:{self.account}:{topic.topic_name}"},
             code=self.make_dashboard_ready_email_inline_code(),
@@ -105,7 +104,7 @@ class AfaStack(cdk.Stack):
         #
         sm_role = iam.Role(
             self,
-            f"{construct_id}-NotebookRole-{region}",
+            f"NotebookRole",
             assumed_by=iam.ServicePrincipal("sagemaker.amazonaws.com"),
             managed_policies=[
                 iam.ManagedPolicy.from_aws_managed_policy_name("AmazonSageMakerFullAccess"),
@@ -123,7 +122,7 @@ class AfaStack(cdk.Stack):
         #
         sm.CfnNotebookInstance(
             self,
-            f"{construct_id}-NotebookInstance",
+            f"NotebookInstance",
             role_arn=sm_role.role_arn,
             instance_type=instance_type.value_as_string,
             notebook_instance_name=notebook_instance_name,
@@ -135,7 +134,7 @@ class AfaStack(cdk.Stack):
         #
         afc_role = iam.Role(
             self,
-            f"{construct_id}-AfcRole-{region}",
+            f"AfcRole",
             assumed_by=iam.CompositePrincipal(
                 iam.ServicePrincipal("forecast.amazonaws.com"),
                 iam.ServicePrincipal("lambda.amazonaws.com")
@@ -313,12 +312,11 @@ class AfaStack(cdk.Stack):
         #
         postprocess_lambda = \
             lambda_.Function(self, 
-                id=f"{construct_id}-PostProcessLambda",
+                f"PostProcessLambda",
                 code=lambda_.EcrImageCode.from_asset_image(
                     directory=os.path.join(PWD, "afc_lambdas", "postprocess")),
                 handler=lambda_.Handler.FROM_IMAGE,
                 runtime=lambda_.Runtime.FROM_IMAGE,
-                function_name=f"{construct_id}-PostProcessLambda",
                 memory_size=10240,
                 role=afc_role,
                 timeout=core.Duration.seconds(900))
@@ -562,7 +560,7 @@ class AfaStack(cdk.Stack):
 
         lcc = sm.CfnNotebookInstanceLifecycleConfig(
             self,
-            f"{construct_id}-NotebookLifecycleConfig",
+            f"NotebookLifecycleConfig",
             on_create=[lcc_oncreate],
             on_start=[lcc_onstart])
 
