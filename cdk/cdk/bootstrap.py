@@ -25,12 +25,13 @@ class BootstrapStack(cdk.Stack):
         #           description="(Required) SageMaker Notebook instance type on which to host "
         #           "the AFA dashboard (e.g. ml.t2.medium, ml.t3.xlarge, ml.t3.2xlarge, ml.m4.4xlarge)")
         instance_type = "ml.t2.medium"
+        region = os.environ["CDK_DEFAULT_REGION"]
 
         vpc = ec2.Vpc(self, f"{construct_id}-Vpc", max_azs=1)
 
         ec2_role = iam.Role(
             self,
-            "{construct_id}-{self.region}-AfaInstanceRole",
+            "{construct_id}-AfaInstanceRole-{region}",
             assumed_by=iam.ServicePrincipal("ec2.amazonaws.com"),
             managed_policies=[
                 iam.ManagedPolicy.from_aws_managed_policy_name("IAMFullAccess"),
@@ -116,7 +117,7 @@ class BootstrapStack(cdk.Stack):
             # install custom conda environment(s)
             conda create -y -q -n py39 python=3.9 nodejs=14
             conda activate py39
-            # install the aws-cdk cli tool (req. for running `cdk deploy ...`)
+            # install the aws-cdk cli tool (req. for running `cdk deply ...`)
 
             npm i --silent --quiet --no-progress -g aws-cdk@1.116.0
 
