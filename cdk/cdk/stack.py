@@ -66,7 +66,7 @@ class AfaStack(cdk.Stack):
         # SNS topic for email notification
         #
         topic = \
-            sns.Topic(self, f"{construct_id}-NotificationTopic",
+            sns.Topic(self, f"NotificationTopic",
                 topic_name=f"{construct_id}-NotificationTopic")
 
         topic.add_subscription(
@@ -76,7 +76,7 @@ class AfaStack(cdk.Stack):
 
         sns_lambda_role = iam.Role(
             self,
-            f"{construct_id}-SnsEmailLambdaRole",
+            f"SnsEmailLambdaRole",
             assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
             managed_policies=[
                 iam.ManagedPolicy.from_aws_managed_policy_name("AmazonSNSFullAccess")
@@ -122,7 +122,7 @@ class AfaStack(cdk.Stack):
         #
         sm.CfnNotebookInstance(
             self,
-            f"{construct_id}-NotebookInstance",
+            f"NotebookInstance",
             role_arn=sm_role.role_arn,
             instance_type=instance_type.value_as_string,
             notebook_instance_name=notebook_instance_name,
@@ -312,7 +312,7 @@ class AfaStack(cdk.Stack):
         #
         postprocess_lambda = \
             lambda_.Function(self, 
-                id=f"{construct_id}-PostProcessLambda",
+                f"PostProcessLambda",
                 code=lambda_.EcrImageCode.from_asset_image(
                     directory=os.path.join(PWD, "afc_lambdas", "postprocess")),
                 handler=lambda_.Handler.FROM_IMAGE,
@@ -561,7 +561,7 @@ class AfaStack(cdk.Stack):
 
         lcc = sm.CfnNotebookInstanceLifecycleConfig(
             self,
-            f"{construct_id}-NotebookLifecycleConfig",
+            f"NotebookLifecycleConfig",
             on_create=[lcc_oncreate],
             on_start=[lcc_onstart])
 
