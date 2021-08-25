@@ -31,7 +31,7 @@ class BootstrapStack(cdk.Stack):
 
         ec2_role = iam.Role(
             self,
-            "{construct_id}-AfaInstanceRole-{region}",
+            f"{construct_id}-AfaInstanceRole-{region}",
             assumed_by=iam.ServicePrincipal("ec2.amazonaws.com"),
             managed_policies=[
                 iam.ManagedPolicy.from_aws_managed_policy_name("IAMFullAccess"),
