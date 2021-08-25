@@ -21,8 +21,11 @@ PWD = os.path.dirname(os.path.realpath(__file__))
 
 class AfaStack(cdk.Stack):
     def __init__(self, scope: cdk.Construct, construct_id: str, **kwargs) -> None:
-        super().__init__(scope, construct_id, **kwargs)
-
+        super().__init__(
+            scope,
+            construct_id,
+            **{**kwargs, "description": "Amazon Forecast Accelerator (uksb-1s7c5ojr9)"},
+        )
         email_address = core.CfnParameter(self, "emailAddress",
                 description="(Required) An e-mail address with which to receive "
                 "deployment notifications.")
