@@ -42,6 +42,11 @@ class BootstrapStack(cdk.Stack):
             ])
         
         ec2_role.add_to_policy(iam.PolicyStatement(
+            resources=[f"arn:aws:ec2:{region}:{self.account}:instance/*"],
+            actions=["ec2:TerminateInstances"]
+        ))
+        
+        ec2_role.add_to_policy(iam.PolicyStatement(
             resources=[f"arn:aws:cloudformation:{self.region}:{self.account}:*"],
             actions=["cloudformation:*"]
         ))
@@ -142,9 +147,14 @@ class BootstrapStack(cdk.Stack):
                 --require-approval never \
                 --parameters AfaStack:emailAddress={email_address.value_as_string} \
                 --parameters AfaStack:instanceType={instance_type}
-            
-            sleep 10
 
+            sleep 10
+            
+            # self-terminate the bootstrap ec2 instance
+            aws ec2 terminate-instances \
+                --instance-ids $(curl -s http://169.254.169.254/latest/meta-data/instance-id) \
+                --region {self.region}
+            
             shutdown
             """)
         )
