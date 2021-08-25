@@ -524,7 +524,8 @@ class AfaStack(cdk.Stack):
         #
         # - https://<NOTEBOOK_URL>/proxy/8501/
         #
-        nohup streamlit run --server.port 8501 --theme.base light \
+        nohup streamlit run --server.port 8501 \
+            --theme.base light \
             --browser.gatherUsageStats false -- ./afa/app/app.py \
             --local-dir ~/SageMaker/ --landing-page-url $LANDING_PAGE_URL &
 
