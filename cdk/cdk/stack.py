@@ -32,6 +32,8 @@ class AfaStack(cdk.Stack):
                 description="(Required) SageMaker Notebook instance type on which to host "
                 "the AFA dashboard (e.g. ml.t2.medium, ml.t3.xlarge, ml.t3.2xlarge, ml.m4.4xlarge)")
 
+        region = os.environ["CDK_DEFAULT_REGION"]
+        
         #
         # S3 Bucket
         #
@@ -73,7 +75,7 @@ class AfaStack(cdk.Stack):
 
         sns_lambda_role = iam.Role(
             self,
-            f"{construct_id}-SnsEmailLambdaRole",
+            f"{construct_id}-SnsEmailLambdaRole-{region}",
             assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
             managed_policies=[
                 iam.ManagedPolicy.from_aws_managed_policy_name("AmazonSNSFullAccess")
@@ -100,7 +102,7 @@ class AfaStack(cdk.Stack):
         #
         sm_role = iam.Role(
             self,
-            f"{construct_id}-NotebookRole",
+            f"{construct_id}-NotebookRole-{region}",
             assumed_by=iam.ServicePrincipal("sagemaker.amazonaws.com"),
             managed_policies=[
                 iam.ManagedPolicy.from_aws_managed_policy_name("AmazonSageMakerFullAccess"),
@@ -130,8 +132,7 @@ class AfaStack(cdk.Stack):
         #
         afc_role = iam.Role(
             self,
-            f"{construct_id}-AfcRole",
-            role_name=f"AfcRole",
+            f"{construct_id}-AfcRole-{region}",
             assumed_by=iam.CompositePrincipal(
                 iam.ServicePrincipal("forecast.amazonaws.com"),
                 iam.ServicePrincipal("lambda.amazonaws.com")
