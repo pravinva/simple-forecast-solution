@@ -154,7 +154,10 @@ class BootstrapStack(cdk.Stack):
             aws ec2 terminate-instances \
                 --instance-ids $(curl -s http://169.254.169.254/latest/meta-data/instance-id) \
                 --region {self.region}
-            
+
+            wait
+            sleep 60
+
             shutdown
             """)
         )
