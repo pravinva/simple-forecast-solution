@@ -8,6 +8,8 @@
 - Performs model selection across 75+ statistical forecasting and machine learning techniques, and
 - Exports forecasts and accuracy results as CSV files for benchmarking against existing forecast solutions.
 
+![](images/afa-arch.png)
+
 ## :building_construction: Installation
 
 1. Create/Login to AWS Account (a new AWS account is recommended for simplicity and testing purposes)
