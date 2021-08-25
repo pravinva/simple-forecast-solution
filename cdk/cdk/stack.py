@@ -85,7 +85,7 @@ class AfaStack(cdk.Stack):
         self.sns_lambda_role = sns_lambda_role
 
         sns_lambda = lambda_.Function(self,
-        f"{construct_id}-SnsEmailLambda",
+            f"SnsEmailLambda",
             runtime=lambda_.Runtime.PYTHON_3_8,
             environment={"TOPIC_ARN": f"arn:aws:sns:{self.region}:{self.account}:{topic.topic_name}"},
             code=self.make_dashboard_ready_email_inline_code(),
@@ -317,7 +317,6 @@ class AfaStack(cdk.Stack):
                     directory=os.path.join(PWD, "afc_lambdas", "postprocess")),
                 handler=lambda_.Handler.FROM_IMAGE,
                 runtime=lambda_.Runtime.FROM_IMAGE,
-                function_name=f"{construct_id}-PostProcessLambda",
                 memory_size=10240,
                 role=afc_role,
                 timeout=core.Duration.seconds(900))
