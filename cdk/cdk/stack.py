@@ -40,7 +40,7 @@ class AfaStack(cdk.Stack):
         #
         bucket = s3.Bucket(self, "AfaBucket", auto_delete_objects=True,
             removal_policy=core.RemovalPolicy.DESTROY,
-            encryption=s3.BucketEncryption.KMS_MANAGED,
+            encryption=s3.BucketEncryption.S3_MANAGED,
             block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
             bucket_name=f"{construct_id.lower()}-{self.account}-{self.region}")
 
