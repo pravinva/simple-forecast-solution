@@ -13,10 +13,134 @@ from aws_cdk import (
     aws_stepfunctions as sfn,
     aws_stepfunctions_tasks as tasks,
     core,
-    core as cdk
+    core as cdk,
+    aws_codebuild as codebuild
 )
 
 PWD = os.path.dirname(os.path.realpath(__file__))
+
+class LambdaMapConstruct(cdk.Construct):
+    def __init__(self, scope: cdk.Construct, construct_id: str, **kwargs) -> None:
+        super().__init__(scope, construct_id, **kwargs)
+
+        # Add any policies needed to deploy the main stack
+        codebuild_role = iam.Role(
+            self,
+            f"CodeBuild",
+            assumed_by=iam.ServicePrincipal("codebuild.amazonaws.com"),
+            managed_policies=[
+                iam.ManagedPolicy.from_aws_managed_policy_name("AWSCodeBuildDeveloperAccess"),
+                iam.ManagedPolicy.from_aws_managed_policy_name("AWSCloudFormationFullAccess"),
+                iam.ManagedPolicy(
+                    self, "CodeBuildManagedPolicy",
+                    statements=[
+                        iam.PolicyStatement(
+                            effect=iam.Effect.ALLOW,
+                            actions=[
+                                "logs:*"
+                            ],
+                            resources=[
+                                f"arn:aws:logs:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:log-group:/aws/codebuild/AfaCodeBuildProject*"
+                            ]
+                        )
+                    ]
+                )
+            ],
+        )
+
+        codebuild_project = \
+            codebuild.Project(self,
+                "AfaCodeBuildProject",
+                #project_name="RubixBootstrapProject",
+                environment=codebuild.BuildEnvironment(
+                    privileged=True,
+                    build_image=codebuild.LinuxBuildImage.AMAZON_LINUX_2_3
+                ),
+                environment_variables={},
+                # define the deployment steps here
+                build_spec=codebuild.BuildSpec.from_object(
+                    {
+                        "version": "0.2",
+                        "phases": {
+                            "install": {
+                                "runtime-versions": {
+                                    "python": "3.9",
+                                    "nodejs": "12"
+                                },
+                                "commands": [
+                                    "npm i --silent --quiet --no-progress -g aws-cdk"
+                                ]
+                            },
+                            "pre_build": {
+                                "commands": [
+                                    "export AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)",
+                                ]
+                            },
+                            "build": {
+                                "commands": [
+                                    # deploy the stack
+                                    "# cdk deploy",
+                                    "echo $AWS_REGION $AWS_ACCOUNT_ID"
+                                ]
+                            },
+                            "post_build": {
+                                "commands": [
+                                    # deploy the stack
+                                    "# cdk deploy",
+
+                                    # add post-deployment tests and checks here
+                                    "echo 'Deploy Completed'"
+                                ]
+                            }
+                        }
+                    }
+                ),
+                role=codebuild_role
+            )
+
+        lambda_role = iam.Role(
+            self, "LambdaRole",
+            assumed_by=iam.CompositePrincipal(
+                iam.ServicePrincipal("lambda.amazonaws.com")
+            ),
+            managed_policies=[
+                iam.ManagedPolicy.from_aws_managed_policy_name("AWSCodeBuildDeveloperAccess"),
+                iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AWSLambdaBasicExecutionRole")
+            ]
+        )
+
+        # this lambda function will trigger the cdk deployment via codebuild
+        lambda_func = lambda_.Function(
+            self, "LambdaFunction",
+            runtime=lambda_.Runtime.PYTHON_3_8,
+            code=lambda_.Code.from_inline(dedent("""
+            import os
+            import json
+            import boto3
+            import cfnresponse
+
+            def lambda_handler(event, context):
+                client = boto3.client("codebuild")
+                response = \
+                    client.start_build(
+                        projectName=os.environ["CODEBUILD_PROJECT_NAME"])
+                response = json.loads(json.dumps(response, default=str))
+                cfnresponse.send(event, context, cfnresponse.SUCCESS, response,
+                    "CustomResourcePhysicalID")
+                return
+            """)),
+            handler="index.lambda_handler",
+            environment={
+                "CODEBUILD_PROJECT_NAME": codebuild_project.project_name
+            },
+            role=lambda_role
+        )
+
+        cust_resource = core.CustomResource(self, "CustomResource",
+            service_token=lambda_func.function_arn)
+        cust_resource.node.add_dependency(codebuild_project)
+
+        return
 
 
 class AfaStack(cdk.Stack):
@@ -38,12 +162,13 @@ class AfaStack(cdk.Stack):
         #
         # S3 Bucket
         #
-        bucket = s3.Bucket(self, "AfaBucket", auto_delete_objects=True,
+        bucket = s3.Bucket(self, "Bucket", auto_delete_objects=False,
             removal_policy=core.RemovalPolicy.DESTROY,
             encryption=s3.BucketEncryption.S3_MANAGED,
-            block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
-            bucket_name=f"{construct_id.lower()}-{self.account}-{self.region}")
-
+            block_public_access=s3.BlockPublicAccess.BLOCK_ALL)
+        
+        #lambda_map_construct = LambdaMapConstruct(self, "LambdaMapConstruct")
+        
         #
         # SSM Parameter Store
         #
@@ -120,14 +245,14 @@ class AfaStack(cdk.Stack):
         #
         # Notebook instance
         #
-        sm.CfnNotebookInstance(
-            self,
-            f"NotebookInstance",
-            role_arn=sm_role.role_arn,
-            instance_type=instance_type.value_as_string,
-            notebook_instance_name=notebook_instance_name,
-            volume_size_in_gb=16,
-            lifecycle_config_name=lcc.attr_notebook_instance_lifecycle_config_name)
+#       sm.CfnNotebookInstance(
+#           self,
+#           f"NotebookInstance",
+#           role_arn=sm_role.role_arn,
+#           instance_type=instance_type.value_as_string,
+#           notebook_instance_name=notebook_instance_name,
+#           volume_size_in_gb=16,
+#           lifecycle_config_name=lcc.attr_notebook_instance_lifecycle_config_name)
 
         #
         # AFC/Lambda role
@@ -159,12 +284,13 @@ class AfaStack(cdk.Stack):
                 "PrepareLambda",
                 runtime=lambda_.Runtime.PYTHON_3_8,
                 handler="index.prepare_handler",
-                code=lambda_.Code.from_asset(os.path.join(PWD, "afc_lambdas")),
+                code=lambda_.Code.from_inline(open(os.path.join(PWD, "afc_lambdas", "prepare.py")).read()),
                 environment={
-                        "AFC_ROLE_ARN": afc_role.role_arn
-                    },
+                    "AFC_ROLE_ARN": afc_role.role_arn
+                },
                 role=afc_role,
-                timeout=core.Duration.seconds(900))
+                timeout=core.Duration.seconds(900)
+            )
 
         prepare_step = \
             tasks.LambdaInvoke(
@@ -176,6 +302,21 @@ class AfaStack(cdk.Stack):
                 })
             )
 
+        wrangler_layer = lambda_.LayerVersion(
+            self,
+            "wrangler-layer",
+            compatible_runtimes=[lambda_.Runtime.PYTHON_3_8],
+            code=lambda_.S3Code(
+                bucket=s3.Bucket.from_bucket_arn(
+                    self,
+                    "wrangler-bucket",
+                    bucket_arn="arn:aws:s3:::aws-data-wrangler-public-artifacts",
+                ),
+                key="releases/2.11.0/awswrangler-layer-2.11.0-py3.8.zip",
+            ),
+            #layer_version_name="aws-data-wrangler"
+        )
+
         #
         # CREATE PREDICTOR
         #
@@ -185,7 +326,7 @@ class AfaStack(cdk.Stack):
                 "CreatedPredictorLambda",
                 runtime=lambda_.Runtime.PYTHON_3_8,
                 handler="index.create_predictor_handler",
-                code=lambda_.Code.from_asset(os.path.join(PWD, "afc_lambdas")),
+                code=lambda_.Code.from_inline(open(os.path.join(PWD, "afc_lambdas", "create_predictor.py")).read()),
                 environment={
                     "AFC_ROLE_ARN": afc_role.role_arn
                 },
@@ -216,10 +357,11 @@ class AfaStack(cdk.Stack):
         create_forecast_lambda = \
             lambda_.Function(
                 self,
-                "CreatedforecastLambda",
+                "CreatedForecastLambda",
                 runtime=lambda_.Runtime.PYTHON_3_8,
                 handler="index.create_forecast_handler",
-                code=lambda_.Code.from_asset(os.path.join(PWD, "afc_lambdas")),
+                code=lambda_.Code.from_inline(
+                    open(os.path.join(PWD, "afc_lambdas", "create_forecast.py")).read()),
                 role=afc_role,
                 timeout=core.Duration.seconds(900))
 
@@ -250,7 +392,8 @@ class AfaStack(cdk.Stack):
                 "CreateExportLambda",
                 runtime=lambda_.Runtime.PYTHON_3_8,
                 handler="index.create_forecast_export_handler",
-                code=lambda_.Code.from_asset(os.path.join(PWD, "afc_lambdas")),
+                code=lambda_.Code.from_inline(
+                    open(os.path.join(PWD, "afc_lambdas", "create_export.py")).read()),
                 environment={
                     "AFC_ROLE_ARN": afc_role.role_arn
                 },
@@ -283,7 +426,9 @@ class AfaStack(cdk.Stack):
                 "CreatePredictorBacktestExportLambda",
                 runtime=lambda_.Runtime.PYTHON_3_8,
                 handler="index.create_predictor_backtest_export_handler",
-                code=lambda_.Code.from_asset(os.path.join(PWD, "afc_lambdas")),
+                code=lambda_.Code.from_inline(
+                    open(os.path.join(PWD, "afc_lambdas",
+                            "create_predictor_backtest_export.py")).read()),
                 environment={
                     "AFC_ROLE_ARN": afc_role.role_arn
                 },
@@ -313,14 +458,14 @@ class AfaStack(cdk.Stack):
         postprocess_lambda = \
             lambda_.Function(self, 
                 f"PostProcessLambda",
-                code=lambda_.EcrImageCode.from_asset_image(
-                    directory=os.path.join(PWD, "afc_lambdas", "postprocess")),
-                handler=lambda_.Handler.FROM_IMAGE,
-                runtime=lambda_.Runtime.FROM_IMAGE,
+                code=lambda_.Code.from_inline(
+                    open(os.path.join(PWD, "afc_lambdas", "post_process.py")).read()),
+                runtime=lambda_.Runtime.PYTHON_3_8,
+                handler="index.handler",
                 memory_size=10240,
                 role=afc_role,
                 timeout=core.Duration.seconds(900))
-            
+
         postprocess_step = \
             tasks.LambdaInvoke(
                 self,
@@ -346,10 +491,11 @@ class AfaStack(cdk.Stack):
                 "DeleteAfcResourcesLambda",
                 runtime=lambda_.Runtime.PYTHON_3_8,
                 handler="index.delete_afc_resources_handler",
-                code=lambda_.Code.from_asset(os.path.join(PWD, "afc_lambdas")),
+                code=lambda_.Code.from_inline(
+                    open(os.path.join(PWD, "afc_lambdas", "delete_resources.py")).read()),
                 role=afc_role,
                 timeout=core.Duration.seconds(900))
-
+        
         delete_afc_resources_step = \
             tasks.LambdaInvoke(
                 self,

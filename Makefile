@@ -1,38 +1,35 @@
-#
-# ...
-#
-# Created:
-#   Sat Jul 24 14:45:13 UTC 2021
-#
-# Usage:
-#   make deploy EMAIL=<your@email.address> INSTANCE_TYPE=<ml.* ec2 instance type>
-# 
 export SHELL
 SHELL:=/bin/bash
 ROOT_DIR:=$(shell dirname $(realpath $(lastword $(MAKEFILE_LIST))))
-
-# SNS emails will be sent to this address to notify when the SageMaker Notebook
-# instances are deployed and when the ML forecasting jobs are completed.
 EMAIL:=
 INSTANCE_TYPE:=ml.t2.medium
 
-.PHONY: ./cdk/bootstrap.py
+.PHONY: devploy tests default
 
-# Deploy the SFS stack
-deploy: AfaStack
+default: .venv
 
-destroy:
-	cd cdk ; cdk destroy --all
+# create the virtual environment from which to run each target
+.venv: requirements.txt
+	python3 -B -m venv $@
+	source $@/bin/activate ; pip install -q -r $<
 
-# Generate the bootstrap cloudformation YAML template
-template.yaml: ./cdk/bootstrap.py
-	( cd cdk ; cdk synth AfaBootstrapStack ) > $@
+tests: .venv
+	source $</bin/activate ; \
+	pytest -vs tests/
 
-AfaStack:
-	cd cdk ; \
-		cdk deploy $@ --parameters $@:emailAddress=${EMAIL} \
-		--parameters $@:instanceType=${INSTANCE_TYPE}
+build/:
+	mkdir -p $@
 
-AfaBootstrapStack:
-	cd cdk ; \
-		cdk deploy $@ --parameters $@:emailAddress=${EMAIL}
+build/template.yml: cdk/app.py cdk/cdk/bootstrap.py build/ .venv 
+	source $(word 4, $^)/bin/activate ; \
+	cdk synth -a 'python3 -B $<' AfaBootstrapStack > $@
+
+deploy: build/template.yml .venv
+	source $(word 2, $^)/bin/activate ; \
+	aws cloudformation deploy \
+		--template-file $< \
+		--capabilities CAPABILITY_NAMED_IAM \
+		--stack-name AfaBootstrapStack \
+		--parameter-overrides \
+			emailAddress=${EMAIL} \
+			instanceType=${INSTANCE_TYPE}

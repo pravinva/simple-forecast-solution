@@ -7,3 +7,20 @@ aws-cdk.aws-sns==1.116.0
 aws-cdk.aws-sns-subscriptions==1.116.0
 aws-cdk.aws-s3==1.116.0
 aws-sam-cli
+ipython
+pytest
+u8darts
+jupyterlab
+ipywidgets
+ipympl
+jupyterlab-theme-hale
+jedi
+pandas
+fsspec
+s3fs
+awswrangler
+seaborn
+tqdm
+aws-sam-cli
+sspipe
+-e .
