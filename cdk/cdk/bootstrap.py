@@ -201,7 +201,7 @@ class BootstrapStack(core.Stack):
                                     "cd ..",
                                     f"git clone {AFA_REPO_URL}",
                                     "cd simple-forecast-solution/",
-                                    "git checkout {afa_branch}",
+                                    f"git checkout {afa_branch}",
                                     "make deploy-ui EMAIL=$EMAIL INSTANCE_TYPE=$INSTANCE_TYPE"
                                 ]
                             },
