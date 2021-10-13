@@ -132,9 +132,8 @@ class AfaStack(cdk.Stack):
             volume_size_in_gb=16,
             lifecycle_config_name=lcc.attr_notebook_instance_lifecycle_config_name)
 
-        #
+        
         # AFC/Lambda role
-        #
         afc_role = iam.Role(
             self,
             f"AfcRole",
