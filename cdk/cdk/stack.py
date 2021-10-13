@@ -13,7 +13,8 @@ from aws_cdk import (
     aws_stepfunctions as sfn,
     aws_stepfunctions_tasks as tasks,
     core,
-    core as cdk
+    core as cdk,
+    aws_codebuild as codebuild
 )
 
 PWD = os.path.dirname(os.path.realpath(__file__))
@@ -24,7 +25,7 @@ class AfaStack(cdk.Stack):
         super().__init__(
             scope,
             construct_id,
-            **{**kwargs, "description": "Amazon Forecast Accelerator (uksb-1s7c5ojr9)"},
+            **{"description": "Amazon Forecast Accelerator (uksb-1s7c5ojr9)"},
         )
         email_address = core.CfnParameter(self, "emailAddress",
                 description="(Required) An e-mail address with which to receive "
@@ -35,15 +36,17 @@ class AfaStack(cdk.Stack):
                 description="(Required) SageMaker Notebook instance type on which to host "
                 "the AFA dashboard (e.g. ml.t2.medium, ml.t3.xlarge, ml.t3.2xlarge, ml.m4.4xlarge)")
 
+        self.afa_branch = kwargs.get("afa_branch", "main")
+        self.lambdamap_branch = kwargs.get("lambdamap_branch", "main")
+
         #
         # S3 Bucket
         #
-        bucket = s3.Bucket(self, "AfaBucket", auto_delete_objects=True,
+        bucket = s3.Bucket(self, "Bucket", auto_delete_objects=False,
             removal_policy=core.RemovalPolicy.DESTROY,
             encryption=s3.BucketEncryption.S3_MANAGED,
-            block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
-            bucket_name=f"{construct_id.lower()}-{self.account}-{self.region}")
-
+            block_public_access=s3.BlockPublicAccess.BLOCK_ALL)
+        
         #
         # SSM Parameter Store
         #
@@ -159,12 +162,13 @@ class AfaStack(cdk.Stack):
                 "PrepareLambda",
                 runtime=lambda_.Runtime.PYTHON_3_8,
                 handler="index.prepare_handler",
-                code=lambda_.Code.from_asset(os.path.join(PWD, "afc_lambdas")),
+                code=lambda_.Code.from_inline(open(os.path.join(PWD, "afc_lambdas", "prepare.py")).read()),
                 environment={
-                        "AFC_ROLE_ARN": afc_role.role_arn
-                    },
+                    "AFC_ROLE_ARN": afc_role.role_arn
+                },
                 role=afc_role,
-                timeout=core.Duration.seconds(900))
+                timeout=core.Duration.seconds(900)
+            )
 
         prepare_step = \
             tasks.LambdaInvoke(
@@ -185,7 +189,7 @@ class AfaStack(cdk.Stack):
                 "CreatedPredictorLambda",
                 runtime=lambda_.Runtime.PYTHON_3_8,
                 handler="index.create_predictor_handler",
-                code=lambda_.Code.from_asset(os.path.join(PWD, "afc_lambdas")),
+                code=lambda_.Code.from_inline(open(os.path.join(PWD, "afc_lambdas", "create_predictor.py")).read()),
                 environment={
                     "AFC_ROLE_ARN": afc_role.role_arn
                 },
@@ -216,10 +220,11 @@ class AfaStack(cdk.Stack):
         create_forecast_lambda = \
             lambda_.Function(
                 self,
-                "CreatedforecastLambda",
+                "CreatedForecastLambda",
                 runtime=lambda_.Runtime.PYTHON_3_8,
                 handler="index.create_forecast_handler",
-                code=lambda_.Code.from_asset(os.path.join(PWD, "afc_lambdas")),
+                code=lambda_.Code.from_inline(
+                    open(os.path.join(PWD, "afc_lambdas", "create_forecast.py")).read()),
                 role=afc_role,
                 timeout=core.Duration.seconds(900))
 
@@ -250,7 +255,8 @@ class AfaStack(cdk.Stack):
                 "CreateExportLambda",
                 runtime=lambda_.Runtime.PYTHON_3_8,
                 handler="index.create_forecast_export_handler",
-                code=lambda_.Code.from_asset(os.path.join(PWD, "afc_lambdas")),
+                code=lambda_.Code.from_inline(
+                    open(os.path.join(PWD, "afc_lambdas", "create_export.py")).read()),
                 environment={
                     "AFC_ROLE_ARN": afc_role.role_arn
                 },
@@ -283,7 +289,9 @@ class AfaStack(cdk.Stack):
                 "CreatePredictorBacktestExportLambda",
                 runtime=lambda_.Runtime.PYTHON_3_8,
                 handler="index.create_predictor_backtest_export_handler",
-                code=lambda_.Code.from_asset(os.path.join(PWD, "afc_lambdas")),
+                code=lambda_.Code.from_inline(
+                    open(os.path.join(PWD, "afc_lambdas",
+                            "create_predictor_backtest_export.py")).read()),
                 environment={
                     "AFC_ROLE_ARN": afc_role.role_arn
                 },
@@ -313,14 +321,15 @@ class AfaStack(cdk.Stack):
         postprocess_lambda = \
             lambda_.Function(self, 
                 f"PostProcessLambda",
-                code=lambda_.EcrImageCode.from_asset_image(
+                code=lambda_.EcrImageCode \
+                            .from_asset_image(
                     directory=os.path.join(PWD, "afc_lambdas", "postprocess")),
-                handler=lambda_.Handler.FROM_IMAGE,
                 runtime=lambda_.Runtime.FROM_IMAGE,
+                handler=lambda_.Handler.FROM_IMAGE,
                 memory_size=10240,
                 role=afc_role,
                 timeout=core.Duration.seconds(900))
-            
+
         postprocess_step = \
             tasks.LambdaInvoke(
                 self,
@@ -346,10 +355,11 @@ class AfaStack(cdk.Stack):
                 "DeleteAfcResourcesLambda",
                 runtime=lambda_.Runtime.PYTHON_3_8,
                 handler="index.delete_afc_resources_handler",
-                code=lambda_.Code.from_asset(os.path.join(PWD, "afc_lambdas")),
+                code=lambda_.Code.from_inline(
+                    open(os.path.join(PWD, "afc_lambdas", "delete_resources.py")).read()),
                 role=afc_role,
                 timeout=core.Duration.seconds(900))
-
+        
         delete_afc_resources_step = \
             tasks.LambdaInvoke(
                 self,
@@ -442,7 +452,7 @@ class AfaStack(cdk.Stack):
         conda activate py39
 
         # install the aws-cdk cli tool (req. for running `cdk deploy ...`)
-        npm i -g aws-cdk@1.116.0
+        npm i -g aws-cdk
 
         # switch to SageMaker directory for persistance
         cd ~/SageMaker/
@@ -450,12 +460,13 @@ class AfaStack(cdk.Stack):
         # install sfs (required by the dashboard code)
         git clone https://github.com/aws-samples/simple-forecast-solution.git
         cd ./simple-forecast-solution ;
-        git checkout main
+        git checkout {self.afa_branch}
         pip install -q -e .
 
         # install lambdamap (required by the dashboard code)
         git clone https://github.com/aws-samples/lambdamap.git
         cd ./lambdamap/
+        git checkout {self.lambdamap_branch}
         pip install -q -e .
 
         EOF
