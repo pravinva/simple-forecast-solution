@@ -421,6 +421,9 @@ class AfaStack(cdk.Stack):
             string_value=state_machine.state_machine_arn,
             parameter_name="AfaAfcStateMachineArn")
 
+    def make_sm_policy(self):
+        return
+    
     def make_nb_lcc_oncreate(self, construct_id):
         """Make the OnCreate script of the lifecycle configuration
 
