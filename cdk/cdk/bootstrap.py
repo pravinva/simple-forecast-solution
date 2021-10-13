@@ -54,6 +54,8 @@ class BootstrapStack(core.Stack):
         afa_branch = kwargs.get("afa_branch", "main")
         lambdamap_branch = kwargs.get("lambdamap_branch", "main")
 
+        self.afa_stack_name = kwargs.get("afa_stack_name", "AfaStack")
+
         codebuild_project_id = "AfaCodeBuildProject"
 
         # Add any policies needed to deploy the main stack
@@ -153,6 +155,7 @@ class BootstrapStack(core.Stack):
                         )
                     ]
                 ),
+                self.make_sns_policy()
             ],
         )
 
@@ -169,6 +172,7 @@ class BootstrapStack(core.Stack):
                     "LAMBDAMAP_FUNCTION_NAME": codebuild.BuildEnvironmentVariable(value=LAMBDAMAP_FUNCTION_NAME),
                     "EMAIL": codebuild.BuildEnvironmentVariable(value=email_address.value_as_string),
                     "INSTANCE_TYPE": codebuild.BuildEnvironmentVariable(value=instance_type.value_as_string),
+                    "AFA_STACK_NAME": codebuild.BuildEnvironmentVariable(value=self.afa_stack_name),
                 },
                 # define the deployment steps here
                 build_spec=codebuild.BuildSpec.from_object(
@@ -202,7 +206,7 @@ class BootstrapStack(core.Stack):
                                     f"git clone {AFA_REPO_URL}",
                                     "cd simple-forecast-solution/",
                                     f"git checkout {afa_branch}",
-                                    "make deploy-ui EMAIL=$EMAIL INSTANCE_TYPE=$INSTANCE_TYPE"
+                                    f"make deploy-ui EMAIL=$EMAIL INSTANCE_TYPE=$INSTANCE_TYPE AFA_STACK_NAME=$AFA_STACK_NAME"
                                 ]
                             },
                             "post_build": {
@@ -245,6 +249,24 @@ class BootstrapStack(core.Stack):
         cust_resource.node.add_dependency(codebuild_project)
 
         return
+    
+    def make_sns_policy(self):
+        policy = iam.ManagedPolicy(
+            self,
+            "SnsPolicy",
+            statements=[
+                iam.PolicyStatement(
+                    effect=iam.Effect.ALLOW,
+                    actions=[
+                        "sns:*"
+                    ],
+                    resources=[
+                        f"arn:aws:sns:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:{core.Aws.STACK_NAME}-NotificationTopic"
+                    ]
+                )
+            ]
+        )
+        return policy
 
 
 if __name__ == "__main__":
