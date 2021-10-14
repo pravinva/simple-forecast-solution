@@ -109,6 +109,7 @@ class BootstrapStack(core.Stack):
                                 f"arn:aws:iam::{core.Aws.ACCOUNT_ID}:role/{self.afa_stack_name}*",
                                 f"arn:aws:lambda:*:{core.Aws.ACCOUNT_ID}:policy/{core.Aws.STACK_NAME}*",
                                 f"arn:aws:lambda:*:{core.Aws.ACCOUNT_ID}:policy/{self.afa_stack_name}*",
+                                f"arn:aws:lambda:*:{core.Aws.ACCOUNT_ID}:policy/{LAMBDAMAP_STACK_NAME}*",
                             ]
                         ),
 
