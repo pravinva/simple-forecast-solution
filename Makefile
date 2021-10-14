@@ -24,7 +24,7 @@ tests: .venv
 build/:
 	mkdir -p $@
 
-build/template.yml: cdk/app.py cdk/cdk/bootstrap.py build/ .venv 
+build/template.yaml: cdk/app.py cdk/cdk/bootstrap.py build/ .venv 
 	source $(word 4, $^)/bin/activate ; \
 	cdk synth -a 'python3 -B $<' -c branch=${BRANCH} ${BOOTSTRAP_STACK_NAME} > $@
 
