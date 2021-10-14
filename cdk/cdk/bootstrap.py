@@ -79,6 +79,7 @@ class BootstrapStack(core.Stack):
                             resources=[
                                 f"arn:aws:cloudformation:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:stack/{core.Aws.STACK_NAME}*",
                                 f"arn:aws:cloudformation:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:stack/{self.afa_stack_name}*",
+                                f"arn:aws:cloudformation:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:stack/{LAMBDAMAP_STACK_NAME}*",
                                 f"arn:aws:cloudformation:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:stack/CDKToolkit*",
                             ]
                         ),
