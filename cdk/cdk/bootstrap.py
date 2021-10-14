@@ -65,22 +65,51 @@ class BootstrapStack(core.Stack):
             assumed_by=iam.ServicePrincipal("codebuild.amazonaws.com"),
             managed_policies=[
                 iam.ManagedPolicy.from_aws_managed_policy_name("AWSCodeBuildDeveloperAccess"),
-                iam.ManagedPolicy.from_aws_managed_policy_name("AWSCloudFormationFullAccess"),
+                #iam.ManagedPolicy.from_aws_managed_policy_name("AWSCloudFormationFullAccess"),
                 iam.ManagedPolicy.from_aws_managed_policy_name("AmazonEC2ContainerRegistryPowerUser"),
                 iam.ManagedPolicy(
                     self, "CodeBuildManagedPolicy",
                     statements=[
+                        # CloudFormation
+                        iam.PolicyStatement(
+                            effect=iam.Effect.ALLOW,
+                            actions=[
+                                "cloudformation:*",
+                            ],
+                            resources=[
+                                f"arn:aws:cloudformation:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:stack/{core.Aws.STACK_NAME}*",
+                                f"arn:aws:cloudformation:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:stack/{self.afa_stack_name}*",
+                            ]
+                        ),
+                        
                         # IAM
                         iam.PolicyStatement(
                             effect=iam.Effect.ALLOW,
                             actions=[
-                                "iam:*"
+                                "iam:DeletePolicy",
+                                "iam:CreateRole",
+                                "iam:AttachRolePolicy",
+                                "iam:PutRolePolicy",
+                                "iam:PassRole",
+                                "iam:DetachRolePolicy",
+                                "iam:DeleteRolePolicy",
+                                "iam:GetRole",
+                                "iam:GetPolicy",
+                                "iam:UpdateRoleDescription",
+                                "iam:DeleteRole",
+                                "iam:CreatePolicy",
+                                "iam:UpdateRole",
+                                "iam:GetRolePolicy",
+                                "iam:DeletePolicyVersion"           
                             ],
                             resources=[
-                                f"*"
+                                f"arn:aws:iam::{core.Aws.ACCOUNT_ID}:role/{core.Aws.STACK_NAME}*",
+                                f"arn:aws:iam::{core.Aws.ACCOUNT_ID}:role/{self.afa_stack_name}*",
+                                f"arn:aws:lambda:*:{core.Aws.ACCOUNT_ID}:policy/{core.Aws.STACK_NAME}*",
+                                f"arn:aws:lambda:*:{core.Aws.ACCOUNT_ID}:policy/{self.afa_stack_name}*",
                             ]
                         ),
-                        
+
                         # CodeBuild logs
                         iam.PolicyStatement(
                             effect=iam.Effect.ALLOW,
