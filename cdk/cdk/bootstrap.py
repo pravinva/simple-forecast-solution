@@ -70,34 +70,7 @@ class BootstrapStack(core.Stack):
                 iam.ManagedPolicy(
                     self, "CodeBuildManagedPolicy",
                     statements=[
-                        iam.PolicyStatement(
-                            effect=iam.Effect.ALLOW,
-                            actions=[
-                                "logs:*"
-                            ],
-                            resources=[
-                                f"arn:aws:logs:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:log-group:/aws/codebuild/{codebuild_project_id}*"
-                            ]
-                        )
-                    ]
-                ),
-                iam.ManagedPolicy(
-                    self, "S3ManagedPolicy",
-                    statements=[
-                        iam.PolicyStatement(
-                            effect=iam.Effect.ALLOW,
-                            actions=[
-                                "s3:*"
-                            ],
-                            resources=[
-                                f"arn:aws:s3:::cdktoolkit-stagingbucket-*",
-                            ]
-                        )
-                    ]
-                ),
-                iam.ManagedPolicy(
-                    self, "IamManagedPolicy",
-                    statements=[
+                        # IAM
                         iam.PolicyStatement(
                             effect=iam.Effect.ALLOW,
                             actions=[
@@ -106,12 +79,100 @@ class BootstrapStack(core.Stack):
                             resources=[
                                 f"*"
                             ]
-                        )
-                    ]
-                ),
-                iam.ManagedPolicy(
-                    self, "CliManagedPolicy",
-                    statements=[
+                        ),
+                        
+                        # CodeBuild logs
+                        iam.PolicyStatement(
+                            effect=iam.Effect.ALLOW,
+                            actions=[
+                                "logs:*"
+                            ],
+                            resources=[
+                                f"arn:aws:logs:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:log-group:/aws/codebuild/{codebuild_project_id}*"
+                            ]
+                        ),
+
+                        # Lambda
+                        iam.PolicyStatement(
+                            effect=iam.Effect.ALLOW,
+                            actions=[
+                                "lambda:*",
+                            ],
+                            resources=[
+                                f"arn:aws:lambda:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:function:{lambdamap_function_name.value_as_string}",
+                                f"arn:aws:lambda:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:function:{self.afa_stack_name}*",
+                            ]
+                        ),
+
+                        # SageMaker
+                        iam.PolicyStatement(
+                            effect=iam.Effect.ALLOW,
+                            actions=[
+                                "sagemaker:DescribeNotebookInstanceLifecycleConfig",
+                                "sagemaker:DeleteNotebookInstance",
+                                "sagemaker:StopNotebookInstance",
+                                "sagemaker:DescribeNotebookInstance",
+                                "sagemaker:CreateNotebookInstanceLifecycleConfig",
+                                "sagemaker:DeleteNotebookInstanceLifecycleConfig",
+                                "sagemaker:UpdateNotebookInstanceLifecycleConfig",
+                                "sagemaker:CreateNotebookInstance",
+                                "sagemaker:UpdateNotebookInstance"
+                            ],
+                            resources=[
+                                f"arn:aws:sagemaker:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:notebook-instance/{self.afa_stack_name.lower()}*",
+                                f"arn:aws:sagemaker:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:notebook-instance-lifecycle-config/notebooklifecycleconfig*",
+                            ]
+                        ),
+
+                        # SNS
+                        iam.PolicyStatement(
+                            effect=iam.Effect.ALLOW,
+                            actions=[
+                                "sns:*"
+                            ],
+                            resources=[
+                                f"arn:aws:sns:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:{self.afa_stack_name}-NotificationTopic"
+                            ]
+                        ),
+
+                        # S3
+                        iam.PolicyStatement(
+                            effect=iam.Effect.ALLOW,
+                            actions=[
+                                "s3:*"
+                            ],
+                            resources=[
+                                f"arn:aws:s3:::cdktoolkit-stagingbucket-*",
+                                f"arn:aws:s3:::afastack*",
+                            ]
+                        ),
+
+                        # SSM
+                        iam.PolicyStatement(
+                            effect=iam.Effect.ALLOW,
+                            actions=[
+                                "ssm:*"
+                            ],
+                            resources=[
+                                f"arn:aws:ssm:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:parameter/AfaS3Bucket",
+                                f"arn:aws:ssm:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:parameter/AfaS3InputPath",
+                                f"arn:aws:ssm:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:parameter/AfaS3OutputPath",
+                                f"arn:aws:ssm:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:parameter/AfaAfcStateMachineArn",
+                            ]
+                        ),
+
+                        # Step Functions
+                        iam.PolicyStatement(
+                            effect=iam.Effect.ALLOW,
+                            actions=[
+                                "states:*"
+                            ],
+                            resources=[
+                                f"arn:aws:states:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:stateMachine:{self.afa_stack_name}*",
+                            ]
+                        ),
+
+                        # ECR
                         iam.PolicyStatement(
                             effect=iam.Effect.ALLOW,
                             actions=[
@@ -141,21 +202,6 @@ class BootstrapStack(core.Stack):
                         )
                     ]
                 ),
-                iam.ManagedPolicy(
-                    self, "LambdaManagedPolicy",
-                    statements=[
-                        iam.PolicyStatement(
-                            effect=iam.Effect.ALLOW,
-                            actions=[
-                                "lambda:*",
-                            ],
-                            resources=[
-                                f"arn:aws:lambda:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:function:{lambdamap_function_name.value_as_string}"
-                            ]
-                        )
-                    ]
-                ),
-                self.make_sns_policy()
             ],
         )
 
@@ -261,7 +307,7 @@ class BootstrapStack(core.Stack):
                         "sns:*"
                     ],
                     resources=[
-                        f"arn:aws:sns:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:{core.Aws.STACK_NAME}-NotificationTopic"
+                        f"arn:aws:sns:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:{core.Aws.STACK_NAME}*"
                     ]
                 )
             ]
