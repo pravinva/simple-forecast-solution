@@ -70,6 +70,17 @@ class BootstrapStack(core.Stack):
                 iam.ManagedPolicy(
                     self, "CodeBuildManagedPolicy",
                     statements=[
+                        # IAM
+                        iam.PolicyStatement(
+                            effect=iam.Effect.ALLOW,
+                            actions=[
+                                "iam:*"
+                            ],
+                            resources=[
+                                f"*"
+                            ]
+                        ),
+                        
                         # CodeBuild logs
                         iam.PolicyStatement(
                             effect=iam.Effect.ALLOW,
@@ -108,7 +119,7 @@ class BootstrapStack(core.Stack):
                                 "sagemaker:UpdateNotebookInstance"
                             ],
                             resources=[
-                                f"arn:aws:sagemaker:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:notebook-instance/notebookinstance*",
+                                f"arn:aws:sagemaker:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:notebook-instance/{self.afa_stack_name.lower()}*",
                                 f"arn:aws:sagemaker:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:notebook-instance-lifecycle-config/notebooklifecycleconfig*",
                             ]
                         ),
@@ -143,30 +154,25 @@ class BootstrapStack(core.Stack):
                                 "ssm:*"
                             ],
                             resources=[
-                            f"arn:aws:ssm:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:parameter/AfaS3Bucket",
-                            f"arn:aws:ssm:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:parameter/AfaS3InputPath",
-                            f"arn:aws:ssm:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:parameter/AfaS3OutputPath",
+                                f"arn:aws:ssm:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:parameter/AfaS3Bucket",
+                                f"arn:aws:ssm:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:parameter/AfaS3InputPath",
+                                f"arn:aws:ssm:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:parameter/AfaS3OutputPath",
+                                f"arn:aws:ssm:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:parameter/AfaAfcStateMachineArn",
                             ]
-                        )
-                    ]
-                ),
-                iam.ManagedPolicy(
-                    self, "IamManagedPolicy",
-                    statements=[
+                        ),
+
+                        # Step Functions
                         iam.PolicyStatement(
                             effect=iam.Effect.ALLOW,
                             actions=[
-                                "iam:*"
+                                "states:*"
                             ],
                             resources=[
-                                f"*"
+                                f"arn:aws:states:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:stateMachine:{self.afa_stack_name}*",
                             ]
-                        )
-                    ]
-                ),
-                iam.ManagedPolicy(
-                    self, "CliManagedPolicy",
-                    statements=[
+                        ),
+
+                        # ECR
                         iam.PolicyStatement(
                             effect=iam.Effect.ALLOW,
                             actions=[
