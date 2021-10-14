@@ -110,14 +110,67 @@ class AfaStack(cdk.Stack):
             f"NotebookRole",
             assumed_by=iam.ServicePrincipal("sagemaker.amazonaws.com"),
             managed_policies=[
-                iam.ManagedPolicy.from_aws_managed_policy_name("AmazonSageMakerFullAccess"),
-                iam.ManagedPolicy.from_aws_managed_policy_name("AWSCloudFormationFullAccess"),
-                iam.ManagedPolicy.from_aws_managed_policy_name("AWSLambda_FullAccess"),
-                iam.ManagedPolicy.from_aws_managed_policy_name("EC2InstanceProfileForImageBuilderECRContainerBuilds"),
+                #iam.ManagedPolicy.from_aws_managed_policy_name("AmazonSageMakerFullAccess"),
+                #iam.ManagedPolicy.from_aws_managed_policy_name("AWSCloudFormationFullAccess"),
+                #iam.ManagedPolicy.from_aws_managed_policy_name("EC2InstanceProfileForImageBuilderECRContainerBuilds"),
                 iam.ManagedPolicy.from_aws_managed_policy_name("IAMFullAccess"),
                 iam.ManagedPolicy.from_aws_managed_policy_name("AmazonSSMReadOnlyAccess"),
-                iam.ManagedPolicy.from_aws_managed_policy_name("AmazonS3FullAccess"),
-                iam.ManagedPolicy.from_aws_managed_policy_name("AWSStepFunctionsFullAccess")
+                #iam.ManagedPolicy.from_aws_managed_policy_name("AmazonS3FullAccess"),
+                iam.ManagedPolicy.from_aws_managed_policy_name("AWSStepFunctionsFullAccess"),
+                
+                # Lambda
+                iam.PolicyStatement(
+                    effect=iam.Effect.ALLOW,
+                    actions=[
+                        "lambda:*",
+                    ],
+                    resources=[
+                        f"arn:aws:lambda:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:function:{lambdamap_function_name.value_as_string}",
+                        f"arn:aws:lambda:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:function:{core.Aws.STACK_NAME}*",
+                    ]
+                ),
+
+                # S3
+                iam.PolicyStatement(
+                    effect=iam.Effect.ALLOW,
+                    actions=[
+                        "s3:*"
+                    ],
+                    resources=[
+                        f"arn:aws:s3:::{construct_id.lower()}*",
+                    ]
+                ),
+
+                # SageMaker
+                iam.PolicyStatement(
+                    effect=iam.Effect.ALLOW,
+                    actions=[
+                        "sagemaker:DescribeNotebookInstanceLifecycleConfig",
+                        "sagemaker:DeleteNotebookInstance",
+                        "sagemaker:StopNotebookInstance",
+                        "sagemaker:DescribeNotebookInstance",
+                        "sagemaker:CreateNotebookInstanceLifecycleConfig",
+                        "sagemaker:DeleteNotebookInstanceLifecycleConfig",
+                        "sagemaker:UpdateNotebookInstanceLifecycleConfig",
+                        "sagemaker:CreateNotebookInstance",
+                        "sagemaker:UpdateNotebookInstance"
+                    ],
+                    resources=[
+                        f"arn:aws:sagemaker:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:notebook-instance/{construct_id.lower()}*",
+                        f"arn:aws:sagemaker:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:notebook-instance-lifecycle-config/notebooklifecycleconfig*",
+                    ]
+                ),
+
+                # Step Functions
+                iam.PolicyStatement(
+                    effect=iam.Effect.ALLOW,
+                    actions=[
+                        "states:*"
+                    ],
+                    resources=[
+                        f"arn:aws:states:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:stateMachine:{core.Aws.STACK_NAME}*",
+                    ]
+                ),
             ])
 
         #
@@ -143,10 +196,53 @@ class AfaStack(cdk.Stack):
             ),
             managed_policies=[
                 iam.ManagedPolicy.from_aws_managed_policy_name("AmazonForecastFullAccess"),
-                iam.ManagedPolicy.from_aws_managed_policy_name("AmazonS3FullAccess"),
-                iam.ManagedPolicy.from_aws_managed_policy_name("AWSLambda_FullAccess"),
-                iam.ManagedPolicy.from_aws_managed_policy_name("CloudWatchLogsFullAccess"),
-                iam.ManagedPolicy.from_aws_managed_policy_name("AmazonSNSFullAccess")
+                #iam.ManagedPolicy.from_aws_managed_policy_name("AmazonS3FullAccess"),
+                #iam.ManagedPolicy.from_aws_managed_policy_name("AmazonSNSFullAccess"),
+
+                # Lambda
+                iam.PolicyStatement(
+                    effect=iam.Effect.ALLOW,
+                    actions=[
+                        "lambda:*",
+                    ],
+                    resources=[
+                        f"arn:aws:lambda:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:function:{lambdamap_function_name.value_as_string}",
+                        f"arn:aws:lambda:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:function:{core.Aws.STACK_NAME}*",
+                    ]
+                ),
+
+                # S3
+                iam.PolicyStatement(
+                    effect=iam.Effect.ALLOW,
+                    actions=[
+                        "s3:*"
+                    ],
+                    resources=[
+                        f"arn:aws:s3:::{construct_id.lower()}*",
+                    ]
+                ),
+
+                # Logging
+                iam.PolicyStatement(
+                    effect=iam.Effect.ALLOW,
+                    actions=[
+                        "logs:*"
+                    ],
+                    resources=[
+                        f"arn:aws:logs:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:log-group:/aws/lambda/{core.Aws.STACK_NAME}*"
+                    ]
+                ),
+
+                # SNS
+                iam.PolicyStatement(
+                    effect=iam.Effect.ALLOW,
+                    actions=[
+                        "sns:*"
+                    ],
+                    resources=[
+                        f"arn:aws:sns:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:{core.Aws.STACK_NAME}*"
+                    ]
+                ),
             ])
 
         fail_state = sfn.Fail(self, "Fail")
