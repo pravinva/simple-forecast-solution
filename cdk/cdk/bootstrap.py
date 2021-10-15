@@ -16,6 +16,9 @@ LAMBDAMAP_REPO_URL = "https://github.com/aws-samples/lambdamap.git"
 LAMBDAMAP_STACK_NAME = "AfaLambdaMapStack"
 LAMBDAMAP_FUNCTION_NAME = "AfaLambdaMapFunction"
 
+TAG_NAME = "Project"
+TAG_VALUE = "Afa"
+
 # The lambda function to start a build of the codebuild project 
 INLINE_CODEBUILD_LAMBDA = dedent("""
 import os
@@ -36,7 +39,19 @@ def lambda_handler(event, context):
 
 class BootstrapStack(core.Stack):
     def __init__(self, scope: cdk.Construct, construct_id: str, **kwargs) -> None:
-        super().__init__(scope, construct_id)
+        """[summary]
+
+        Args:
+            scope (cdk.Construct): [description]
+            construct_id (str): [description]
+        """
+        afa_branch = kwargs.pop("afa_branch", "main")
+        lambdamap_branch = kwargs.pop("lambdamap_branch", "main")
+        self.afa_stack_name = kwargs.pop("afa_stack_name", "AfaStack")
+
+        super().__init__(scope, construct_id, **kwargs)
+
+        #core.Tags.of(self).add(TAG_NAME, TAG_VALUE)
 
         email_address = core.CfnParameter(self, "emailAddress",
                 allowed_pattern=".+",
@@ -51,11 +66,6 @@ class BootstrapStack(core.Stack):
         lambdamap_function_name = core.CfnParameter(self, "lambdamapFunctionName",
                 default=LAMBDAMAP_FUNCTION_NAME)
         
-        afa_branch = kwargs.get("afa_branch", "main")
-        lambdamap_branch = kwargs.get("lambdamap_branch", "main")
-
-        self.afa_stack_name = kwargs.get("afa_stack_name", "AfaStack")
-
         codebuild_project_id = "AfaCodeBuildProject"
 
         # Add any policies needed to deploy the main stack
@@ -243,6 +253,8 @@ class BootstrapStack(core.Stack):
             ],
         )
 
+        #core.Tags.of(codebuild_role).add(TAG_NAME, TAG_VALUE)
+
         codebuild_project = \
             codebuild.Project(self,
                 codebuild_project_id,
@@ -284,7 +296,7 @@ class BootstrapStack(core.Stack):
                                     "cd lambdamap/",
                                     f"git checkout {lambdamap_branch}",
                                     "make deploy STACK_NAME=$LAMBDAMAP_STACK_NAME "
-                                    "FUNCTION_NAME=$LAMBDAMAP_FUNCTION_NAME "
+                                    "FUNCTION_NAME=$LAMBDAMAP_FUNCTION_NAME PROJECT_TAG=Afa"
                                     f"EXTRA_CMDS='git clone {AFA_REPO_URL} ; cd ./simple-forecast-solution/ ; git checkout {afa_branch} ; pip install -e .'",
                                     "cd ..",
                                     f"git clone {AFA_REPO_URL}",
@@ -305,6 +317,8 @@ class BootstrapStack(core.Stack):
                 role=codebuild_role
             )
 
+        #core.Tags.of(codebuild_project).add(TAG_NAME, TAG_VALUE)
+
         lambda_role = iam.Role(
             self, "LambdaRole",
             assumed_by=iam.CompositePrincipal(
@@ -315,6 +329,8 @@ class BootstrapStack(core.Stack):
                 iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AWSLambdaBasicExecutionRole")
             ]
         )
+
+        #core.Tags.of(lambda_role).add(TAG_NAME, TAG_VALUE)
 
         # this lambda function will trigger the cdk deployment via codebuild
         lambda_func = lambda_.Function(
@@ -328,9 +344,13 @@ class BootstrapStack(core.Stack):
             role=lambda_role
         )
 
+        #core.Tags.of(lambda_func).add(TAG_NAME, TAG_VALUE)
+
         cust_resource = core.CustomResource(self, "CustomResource",
             service_token=lambda_func.function_arn)
         cust_resource.node.add_dependency(codebuild_project)
+
+        #core.Tags.of(cust_resource).add(TAG_NAME, TAG_VALUE)
 
         return
     
@@ -350,10 +370,14 @@ class BootstrapStack(core.Stack):
                 )
             ]
         )
+
+        #core.Tags.of(policy).add(TAG_NAME, TAG_VALUE)
+
         return policy
 
 
 if __name__ == "__main__":
     app = core.App()
-    BootstrapStack(app, "AfaBootstrapStack")
+    core.Tags.of(app).add(TAG_NAME, TAG_VALUE)
+    stack = BootstrapStack(app, "AfaBootstrapStack")
     app.synth()
