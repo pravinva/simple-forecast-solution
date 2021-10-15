@@ -296,7 +296,7 @@ class BootstrapStack(core.Stack):
                                     "cd lambdamap/",
                                     f"git checkout {lambdamap_branch}",
                                     "make deploy STACK_NAME=$LAMBDAMAP_STACK_NAME "
-                                    "FUNCTION_NAME=$LAMBDAMAP_FUNCTION_NAME PROJECT_TAG=Afa"
+                                    "FUNCTION_NAME=$LAMBDAMAP_FUNCTION_NAME PROJECT_TAG=Afa "
                                     f"EXTRA_CMDS='git clone {AFA_REPO_URL} ; cd ./simple-forecast-solution/ ; git checkout {afa_branch} ; pip install -e .'",
                                     "cd ..",
                                     f"git clone {AFA_REPO_URL}",
