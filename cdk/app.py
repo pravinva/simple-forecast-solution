@@ -32,11 +32,10 @@ if branch is None:
 if project_tag is None:
     project_tag = TAG_VALUE
 
-core.Tags.of(app).add(TAG_NAME, TAG_VALUE)
+core.Tags.of(app).add(TAG_NAME, project_tag)
 
 AfaStack(app, stack_name)
-bootstrap_stack = \
-    BootstrapStack(app, boot_stack_name, lambdamap_branch=branch,
-                   afa_branch=branch)
+BootstrapStack(app, boot_stack_name, lambdamap_branch=branch,
+                afa_branch=branch)
 
 app.synth()
