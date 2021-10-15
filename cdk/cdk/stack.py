@@ -19,6 +19,9 @@ from aws_cdk import (
 
 PWD = os.path.dirname(os.path.realpath(__file__))
 
+TAG_NAME = "Project"
+TAG_VALUE = "Afa"
+
 
 class AfaStack(cdk.Stack):
     def __init__(self, scope: cdk.Construct, construct_id: str, **kwargs) -> None:
@@ -47,11 +50,11 @@ class AfaStack(cdk.Stack):
             removal_policy=core.RemovalPolicy.DESTROY,
             encryption=s3.BucketEncryption.S3_MANAGED,
             block_public_access=s3.BlockPublicAccess.BLOCK_ALL)
-        
+
         #
         # SSM Parameter Store
         #
-        ssm_s3_input_path_param = ssm.StringParameter(self,
+        ssm_s3_bucket_path_param = ssm.StringParameter(self,
                 "AfaSsmS3Bucket",
                 string_value=bucket.bucket_name,
                 parameter_name="AfaS3Bucket")
@@ -164,7 +167,7 @@ class AfaStack(cdk.Stack):
                                 "states:*"
                             ],
                             resources=[
-                                f"arn:aws:states:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:stateMachine:{core.Aws.STACK_NAME}*",
+                                f"arn:aws:states:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:*:{core.Aws.STACK_NAME}*",
                             ]
                         ),
 
@@ -195,7 +198,8 @@ class AfaStack(cdk.Stack):
             instance_type=instance_type.value_as_string,
             notebook_instance_name=notebook_instance_name,
             volume_size_in_gb=16,
-            lifecycle_config_name=lcc.attr_notebook_instance_lifecycle_config_name)
+            lifecycle_config_name=lcc.attr_notebook_instance_lifecycle_config_name,
+            tags=[core.CfnTag(key=TAG_NAME, value=TAG_VALUE)])
         
         # AFC/Lambda role
         afc_role = iam.Role(

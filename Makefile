@@ -24,12 +24,12 @@ tests: .venv
 build/:
 	mkdir -p $@
 
-build/template.yml: cdk/app.py cdk/cdk/bootstrap.py build/ .venv 
+build/template.yaml: cdk/app.py cdk/cdk/bootstrap.py build/ .venv 
 	source $(word 4, $^)/bin/activate ; \
-	cdk synth -a 'python3 -B $<' -c branch=${BRANCH} ${BOOTSTRAP_STACK_NAME} > $@
+	cdk synth -a 'python3 -B $<' -c branch=${BRANCH} > $@
 
 # Deploy the bootstrap stack
-deploy: build/template.yml .venv
+deploy: build/template.yaml .venv
 	source $(word 2, $^)/bin/activate ; \
 	aws cloudformation deploy \
 		--template-file $< \
@@ -37,7 +37,8 @@ deploy: build/template.yml .venv
 		--stack-name ${BOOTSTRAP_STACK_NAME} \
 		--parameter-overrides \
 			emailAddress=${EMAIL} \
-			instanceType=${INSTANCE_TYPE}
+			instanceType=${INSTANCE_TYPE} \
+		--tags Project=AfaStack
 
 # Deploy the ui stack
 deploy-ui: cdk/app.py .venv

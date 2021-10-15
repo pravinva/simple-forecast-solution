@@ -1,9 +1,9 @@
-aws-cdk.core==1.116.0
-aws-cdk.aws-iam==1.116.0
-aws-cdk.aws-sagemaker==1.116.0
-aws-cdk.aws-stepfunctions==1.116.0 
-aws-cdk.aws-stepfunctions-tasks==1.116.0 
-aws-cdk.aws-sns==1.116.0
-aws-cdk.aws-sns-subscriptions==1.116.0
-aws-cdk.aws-s3==1.116.0
+aws-cdk.core
+aws-cdk.aws-iam
+aws-cdk.aws-sagemaker
+aws-cdk.aws-stepfunctions
+aws-cdk.aws-stepfunctions-tasks
+aws-cdk.aws-sns
+aws-cdk.aws-sns-subscriptions
+aws-cdk.aws-s3
 aws-sam-cli
