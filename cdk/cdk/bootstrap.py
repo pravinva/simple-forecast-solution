@@ -45,13 +45,11 @@ class BootstrapStack(core.Stack):
             scope (cdk.Construct): [description]
             construct_id (str): [description]
         """
-        afa_branch = kwargs.pop("afa_branch", "main")
-        lambdamap_branch = kwargs.pop("lambdamap_branch", "main")
-        self.afa_stack_name = kwargs.pop("afa_stack_name", "AfaStack")
+        super().__init__(scope, construct_id)
 
-        super().__init__(scope, construct_id, **kwargs)
-
-        #core.Tags.of(self).add(TAG_NAME, TAG_VALUE)
+        afa_branch = kwargs.get("afa_branch", "main")
+        lambdamap_branch = kwargs.get("lambdamap_branch", "main")
+        self.afa_stack_name = kwargs.get("afa_stack_name", "AfaStack")
 
         email_address = core.CfnParameter(self, "emailAddress",
                 allowed_pattern=".+",
