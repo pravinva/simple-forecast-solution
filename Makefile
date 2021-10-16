@@ -17,9 +17,14 @@ default: .venv
 	python3 -B -m venv $@
 	source $@/bin/activate ; pip install -q -r $<
 
-tests: .venv
-	source $</bin/activate ; \
-	pytest -vs tests/
+.tox: requirements.txt
+	tox -r --notest
+
+tests/reports:
+	mkdir -p $@
+
+tests: tests/reports .tox
+	tox
 
 build/:
 	mkdir -p $@
@@ -38,7 +43,7 @@ deploy: build/template.yaml .venv
 		--parameter-overrides \
 			emailAddress=${EMAIL} \
 			instanceType=${INSTANCE_TYPE} \
-		--tags Project=AfaStack
+		--tags Project=Afa
 
 # Deploy the ui stack
 deploy-ui: cdk/app.py .venv

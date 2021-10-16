@@ -19,7 +19,8 @@ setuptools.setup(
         "humanfriendly",
         "streamlit-aggrid",
         "joblib",
-        "toolz"
+        "toolz",
+        "pandera"
     ],
     python_requires=">=3.8",
     classifiers=[

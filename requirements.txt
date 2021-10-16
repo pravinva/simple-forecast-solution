@@ -23,4 +23,7 @@ seaborn
 tqdm
 aws-sam-cli
 sspipe
+pandera
+tox
+coverage
 -e .
