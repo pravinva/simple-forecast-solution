@@ -17,9 +17,14 @@ default: .venv
 	python3 -B -m venv $@
 	source $@/bin/activate ; pip install -q -r $<
 
-tests: .venv
-	source $</bin/activate ; \
-	pytest -vs tests/
+.tox: requirements.txt
+	tox -r --notest
+
+tests/reports:
+	mkdir -p $@
+
+tests: tests/reports .tox
+	tox
 
 build/:
 	mkdir -p $@
