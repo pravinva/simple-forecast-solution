@@ -1,0 +1,41 @@
+version: 0.2
+env:
+  variables:
+    EMAIL: user@example.com
+phases:
+  install:
+    runtime-versions:
+      python: 3.9
+    commands:
+      - pip install -q tox
+      - npm i --silent --quiet --no-progress -g aws-cdk
+  pre_build:
+    commands:
+      - make tests
+  build:
+    commands:
+      - make build/template.yaml EMAIL=$EMAIL
+  post_build:
+    commands:
+      - echo 'Build Completed'
+
+reports:
+  afa-code-pytest-report:
+    files:
+      - tests/reports/pytest.xml
+    file-format: JUNITXML
+  afa-code-coverage-report:
+    files:
+      - tests/reports/coverage.xml
+    file-format: COBERTURAXML
+
+artifacts:
+  secondary-artifacts:
+    BuildArtifact:
+      files:
+        - "**/*"
+    TemplateArtifact:
+      base-directory: build
+      files:
+        - template.yaml
+      discard-paths: yes
