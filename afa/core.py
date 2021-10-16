@@ -1,14 +1,17 @@
+import time
 import traceback
 import contextlib
 import statsmodels.api as sm
 import pandas as pd
 import numpy as np
-import time
+import pandera as pa
 
 from collections import OrderedDict
 from concurrent import futures
 from functools import partial
 from tqdm.auto import tqdm
+
+from pandera import Check, Column, DataFrameSchema
 
 from scipy import signal, stats
 from numpy import fft
@@ -1182,7 +1185,7 @@ def load_data(data, impute_freq=None):
 
     Returns
     -------
-    Dataset
+    pd.DataFrame
 
     """
 
@@ -1200,6 +1203,16 @@ def load_data(data, impute_freq=None):
         df = data
     else:
         raise NotImplementedError
+    
+    schema = DataFrameSchema({
+        "timestamp": Column(str, nullable=False, coerce=True),
+        "channel": Column(str, nullable=False, coerce=True),
+        "family": Column(str, nullable=False, coerce=True),
+        "item_id": Column(str, nullable=False, coerce=True),
+        "demand": Column(float, Check(lambda x: x >= 0), coerce=True)
+    })
+
+    schema.validate(df, lazy=True)
 
     # enforce column datatypes
     df = df.astype({"channel": str, "family": str, "item_id": str,

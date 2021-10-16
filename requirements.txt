@@ -23,4 +23,5 @@ seaborn
 tqdm
 aws-sam-cli
 sspipe
+pandera
 -e .
