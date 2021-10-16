@@ -38,7 +38,7 @@ deploy: build/template.yaml .venv
 		--parameter-overrides \
 			emailAddress=${EMAIL} \
 			instanceType=${INSTANCE_TYPE} \
-		--tags Project=AfaStack
+		--tags Project=Afa
 
 # Deploy the ui stack
 deploy-ui: cdk/app.py .venv
