@@ -45,12 +45,3 @@ ${STACK_NAME}: template.yaml
 			cdkRoleArn=abc
 
 deploy: ${STACK_NAME}
-
-#AfaStack: templ
-#	cd cdk ; \
-#		cdk deploy $@ --parameters $@:emailAddress=${EMAIL} \
-#		--parameters $@:instanceType=${INSTANCE_TYPE}
-#
-#AfaBootstrapStack:
-#	cd cdk ; \
-#		cdk deploy $@ --parameters $@:emailAddress=${EMAIL}

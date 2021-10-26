@@ -286,6 +286,7 @@ class BootstrapStack(core.Stack):
                             },
                             "pre_build": {
                                 "commands": [
+                                    """export CDK_TAGS=$(aws cloudformation describe-stacks --stack-name PersonalizeStack --query Stacks[0].Tags | python -c 'import sys, json; print(" ".join("--tags " + d["Key"] + "=" + d["Value"] for d in json.load(sys.stdin)))')"""
                                 ]
                             },
                             "build": {
@@ -300,7 +301,7 @@ class BootstrapStack(core.Stack):
                                     f"git clone {AFA_REPO_URL}",
                                     "cd simple-forecast-solution/",
                                     f"git checkout {afa_branch}",
-                                    f"make deploy-ui EMAIL=$EMAIL INSTANCE_TYPE=$INSTANCE_TYPE AFA_STACK_NAME=$AFA_STACK_NAME"
+                                    f"make deploy-ui EMAIL=$EMAIL INSTANCE_TYPE=$INSTANCE_TYPE AFA_STACK_NAME=$AFA_STACK_NAME CDK_TAGS=$CDK_TAGS"
                                 ]
                             },
                             "post_build": {
