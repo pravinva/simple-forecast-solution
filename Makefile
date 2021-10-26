@@ -7,6 +7,8 @@ BRANCH:=main
 
 AFA_STACK_NAME:=AfaStack
 BOOTSTRAP_STACK_NAME:=AfaBootstrapStack
+CFN_TAGS:=--tags Key=Project,Value=Afa
+CDK_TAGS:=--tags Project=Afa
 
 .PHONY: devploy tests default
 
@@ -23,8 +25,12 @@ default: .venv
 tests/reports:
 	mkdir -p $@
 
-tests: tests/reports .tox
+tox: tests/reports .tox
 	tox
+
+tests: .venv
+	source $</bin/activate ; \
+	pytest -vs tests/
 
 build/:
 	mkdir -p $@
@@ -43,7 +49,7 @@ deploy: build/template.yaml .venv
 		--parameter-overrides \
 			emailAddress=${EMAIL} \
 			instanceType=${INSTANCE_TYPE} \
-		--tags Project=Afa
+		${CFN_TAGS}
 
 # Deploy the ui stack
 deploy-ui: cdk/app.py .venv
@@ -51,4 +57,5 @@ deploy-ui: cdk/app.py .venv
 	cdk deploy -a 'python3 -B $<' ${AFA_STACK_NAME} \
 		--require-approval never \
 		--parameters ${AFA_STACK_NAME}:emailAddress=${EMAIL} \
-		--parameters ${AFA_STACK_NAME}:instanceType=${INSTANCE_TYPE}
+		--parameters ${AFA_STACK_NAME}:instanceType=${INSTANCE_TYPE} \
+		${CDK_TAGS}

@@ -11,7 +11,7 @@ phases:
       - npm i --silent --quiet --no-progress -g aws-cdk
   pre_build:
     commands:
-      - make tests
+      - make tox
   build:
     commands:
       - make build/template.yaml EMAIL=$EMAIL
