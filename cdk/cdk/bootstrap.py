@@ -277,10 +277,10 @@ class BootstrapStack(core.Stack):
                                     "nodejs": "12"
                                 },
                                 "commands": [
-                                    f"""export CDK_TAGS=$(aws cloudformation describe-stacks --stack-name {construct_id} --query Stacks[0].Tags | python -c 'import sys, json; print(" ".join("--tags " + d["Key"] + "=" + d["Value"] for d in json.load(sys.stdin)))')""",
+                                    f"""export CDK_TAGS=$(aws cloudformation describe-stacks --stack-name {core.Aws.STACK_NAME} --query Stacks[0].Tags | python -c 'import sys, json; print(" ".join("--tags " + d["Key"] + "=" + d["Value"] for d in json.load(sys.stdin)))')""",
                                     "export AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)",
                                     "npm i --silent --quiet --no-progress -g aws-cdk",
-                                    "cdk bootstrap aws://$AWS_ACCOUNT_ID/$AWS_DEFAULT_REGION"
+                                    'cdk bootstrap aws://$AWS_ACCOUNT_ID/$AWS_DEFAULT_REGION "$CDK_TAGS"'
                                 ]
                             },
                             "pre_build": {
