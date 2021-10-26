@@ -7,6 +7,7 @@ BRANCH:=main
 
 AFA_STACK_NAME:=AfaStack
 BOOTSTRAP_STACK_NAME:=AfaBootstrapStack
+CFN_TAGS:=--tags Key=Project,Value=Afa
 CDK_TAGS:=--tags Project=Afa
 
 .PHONY: devploy tests default
@@ -48,7 +49,7 @@ deploy: build/template.yaml .venv
 		--parameter-overrides \
 			emailAddress=${EMAIL} \
 			instanceType=${INSTANCE_TYPE} \
-		${CDK_TAGS}
+		${CFN_TAGS}
 
 # Deploy the ui stack
 deploy-ui: cdk/app.py .venv

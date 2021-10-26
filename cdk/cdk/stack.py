@@ -105,88 +105,89 @@ class AfaStack(cdk.Stack):
         notebook_instance_name = f"{construct_id}-NotebookInstance"
         lcc = self.make_nb_lcc(construct_id, notebook_instance_name,
                 sns_lambda.function_name)
-
         #
         # Notebook role
         #
         sm_role = iam.Role(
             self,
             f"NotebookRole",
-            assumed_by=iam.ServicePrincipal("sagemaker.amazonaws.com"),
-            managed_policies=[
-                iam.ManagedPolicy(
-                    self, "SmCustomManagedPolicy",
-                    statements=[
-                        # Lambda
-                        iam.PolicyStatement(
-                            effect=iam.Effect.ALLOW,
-                            actions=[
-                                "lambda:*",
-                            ],
-                            resources=[
-                                f"arn:aws:lambda:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:function:{self.lambdamap_function_name}",
-                                f"arn:aws:lambda:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:function:{core.Aws.STACK_NAME}*",
-                            ]
-                        ),
+            assumed_by=iam.ServicePrincipal("sagemaker.amazonaws.com"))
 
-                        # S3
-                        iam.PolicyStatement(
-                            effect=iam.Effect.ALLOW,
-                            actions=[
-                                "s3:*"
-                            ],
-                            resources=[
-                                f"arn:aws:s3:::{construct_id.lower()}*",
-                            ]
-                        ),
+        sm_policy = \
+            iam.Policy(
+                self,
+                "SmPolicy",
+                roles=[sm_role],
+                statements=[
+                    # Lambda
+                    iam.PolicyStatement(
+                        effect=iam.Effect.ALLOW,
+                        actions=[
+                            "lambda:*",
+                        ],
+                        resources=[
+                            f"arn:aws:lambda:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:function:{self.lambdamap_function_name}",
+                            f"arn:aws:lambda:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:function:{core.Aws.STACK_NAME}*",
+                        ]
+                    ),
 
-                        # SageMaker
-                        iam.PolicyStatement(
-                            effect=iam.Effect.ALLOW,
-                            actions=[
-                                "sagemaker:DescribeNotebookInstanceLifecycleConfig",
-                                "sagemaker:DeleteNotebookInstance",
-                                "sagemaker:StopNotebookInstance",
-                                "sagemaker:DescribeNotebookInstance",
-                                "sagemaker:CreateNotebookInstanceLifecycleConfig",
-                                "sagemaker:DeleteNotebookInstanceLifecycleConfig",
-                                "sagemaker:UpdateNotebookInstanceLifecycleConfig",
-                                "sagemaker:CreateNotebookInstance",
-                                "sagemaker:UpdateNotebookInstance"
-                            ],
-                            resources=[
-                                f"arn:aws:sagemaker:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:notebook-instance/{construct_id.lower()}*",
-                                f"arn:aws:sagemaker:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:notebook-instance-lifecycle-config/notebooklifecycleconfig*",
-                            ]
-                        ),
+                    # S3
+                    iam.PolicyStatement(
+                        effect=iam.Effect.ALLOW,
+                        actions=[
+                            "s3:*"
+                        ],
+                        resources=[
+                            f"arn:aws:s3:::{construct_id.lower()}*",
+                        ]
+                    ),
 
-                        # Step Functions
-                        iam.PolicyStatement(
-                            effect=iam.Effect.ALLOW,
-                            actions=[
-                                "states:*"
-                            ],
-                            resources=[
-                                f"arn:aws:states:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:*:{core.Aws.STACK_NAME}*",
-                            ]
-                        ),
+                    # SageMaker
+                    iam.PolicyStatement(
+                        effect=iam.Effect.ALLOW,
+                        actions=[
+                            "sagemaker:DescribeNotebookInstanceLifecycleConfig",
+                            "sagemaker:DeleteNotebookInstance",
+                            "sagemaker:StopNotebookInstance",
+                            "sagemaker:DescribeNotebookInstance",
+                            "sagemaker:CreateNotebookInstanceLifecycleConfig",
+                            "sagemaker:DeleteNotebookInstanceLifecycleConfig",
+                            "sagemaker:UpdateNotebookInstanceLifecycleConfig",
+                            "sagemaker:CreateNotebookInstance",
+                            "sagemaker:UpdateNotebookInstance"
+                        ],
+                        resources=[
+                            f"arn:aws:sagemaker:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:notebook-instance/{construct_id.lower()}*",
+                            f"arn:aws:sagemaker:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:notebook-instance-lifecycle-config/notebooklifecycleconfig*",
+                        ]
+                    ),
 
-                        # SSM
-                        iam.PolicyStatement(
-                            effect=iam.Effect.ALLOW,
-                            actions=[
-                                "ssm:*"
-                            ],
-                            resources=[
-                                f"arn:aws:ssm:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:parameter/AfaS3Bucket",
-                                f"arn:aws:ssm:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:parameter/AfaS3InputPath",
-                                f"arn:aws:ssm:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:parameter/AfaS3OutputPath",
-                                f"arn:aws:ssm:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:parameter/AfaAfcStateMachineArn",
-                            ]
-                        ),
-                    ]
-                )
-            ])
+                    # Step Functions
+                    iam.PolicyStatement(
+                        effect=iam.Effect.ALLOW,
+                        actions=[
+                            "states:*"
+                        ],
+                        resources=[
+                            f"arn:aws:states:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:*:{core.Aws.STACK_NAME}*",
+                        ]
+                    ),
+
+                    # SSM
+                    iam.PolicyStatement(
+                        effect=iam.Effect.ALLOW,
+                        actions=[
+                            "ssm:*"
+                        ],
+                        resources=[
+                            f"arn:aws:ssm:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:parameter/AfaS3Bucket",
+                            f"arn:aws:ssm:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:parameter/AfaS3InputPath",
+                            f"arn:aws:ssm:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:parameter/AfaS3OutputPath",
+                            f"arn:aws:ssm:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:parameter/AfaAfcStateMachineArn",
+                        ]
+                    ),
+                ]
+            )
 
         #
         # Notebook instance
@@ -199,10 +200,11 @@ class AfaStack(cdk.Stack):
             notebook_instance_name=notebook_instance_name,
             volume_size_in_gb=16,
             lifecycle_config_name=lcc.attr_notebook_instance_lifecycle_config_name,
-            tags=[core.CfnTag(key=TAG_NAME, value=TAG_VALUE)])
+            )
         
         # AFC/Lambda role
-        afc_role = iam.Role(
+        afc_role = \
+            iam.Role(
             self,
             f"AfcRole",
             assumed_by=iam.CompositePrincipal(
@@ -211,59 +213,61 @@ class AfaStack(cdk.Stack):
             ),
             managed_policies=[
                 iam.ManagedPolicy.from_aws_managed_policy_name("AmazonForecastFullAccess"),
-                #iam.ManagedPolicy.from_aws_managed_policy_name("AmazonS3FullAccess"),
-                #iam.ManagedPolicy.from_aws_managed_policy_name("AmazonSNSFullAccess"),
-                iam.ManagedPolicy(
-                    self, "AfcCustomManagedPolicy",
-                    statements=[
-                        # Lambda
-                        iam.PolicyStatement(
-                            effect=iam.Effect.ALLOW,
-                            actions=[
-                                "lambda:*",
-                            ],
-                            resources=[
-                                f"arn:aws:lambda:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:function:{self.lambdamap_function_name}",
-                                f"arn:aws:lambda:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:function:{core.Aws.STACK_NAME}*",
-                            ]
-                        ),
-
-                        # S3
-                        iam.PolicyStatement(
-                            effect=iam.Effect.ALLOW,
-                            actions=[
-                                "s3:*"
-                            ],
-                            resources=[
-                                f"arn:aws:s3:::{construct_id.lower()}*",
-                            ]
-                        ),
-
-                        # Logging
-                        iam.PolicyStatement(
-                            effect=iam.Effect.ALLOW,
-                            actions=[
-                                "logs:*"
-                            ],
-                            resources=[
-                                f"arn:aws:logs:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:log-group:/aws/lambda/{core.Aws.STACK_NAME}*"
-                            ]
-                        ),
-
-                        # SNS
-                        iam.PolicyStatement(
-                            effect=iam.Effect.ALLOW,
-                            actions=[
-                                "sns:*"
-                            ],
-                            resources=[
-                                f"arn:aws:sns:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:{core.Aws.STACK_NAME}*"
-                            ]
-                        ),
-                    ]
-                ),
             ])
 
+        afc_policy = \
+            iam.Policy(
+                self,
+                "AfcPolicy",
+                roles=[afc_role],
+                statements=[
+                    # Lambda
+                    iam.PolicyStatement(
+                        effect=iam.Effect.ALLOW,
+                        actions=[
+                            "lambda:*",
+                        ],
+                        resources=[
+                            f"arn:aws:lambda:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:function:{self.lambdamap_function_name}",
+                            f"arn:aws:lambda:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:function:{core.Aws.STACK_NAME}*",
+                        ]
+                    ),
+
+                    # S3
+                    iam.PolicyStatement(
+                        effect=iam.Effect.ALLOW,
+                        actions=[
+                            "s3:*"
+                        ],
+                        resources=[
+                            f"arn:aws:s3:::{construct_id.lower()}*",
+                        ]
+                    ),
+
+                    # Logging
+                    iam.PolicyStatement(
+                        effect=iam.Effect.ALLOW,
+                        actions=[
+                            "logs:*"
+                        ],
+                        resources=[
+                            f"arn:aws:logs:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:log-group:/aws/lambda/{core.Aws.STACK_NAME}*"
+                        ]
+                    ),
+
+                    # SNS
+                    iam.PolicyStatement(
+                        effect=iam.Effect.ALLOW,
+                        actions=[
+                            "sns:*"
+                        ],
+                        resources=[
+                            f"arn:aws:sns:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:{core.Aws.STACK_NAME}*"
+                        ]
+                    ),
+                ]
+            )
+        
         fail_state = sfn.Fail(self, "Fail")
         succeed_state = sfn.Succeed(self, "Succeed")
 
