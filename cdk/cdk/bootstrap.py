@@ -279,8 +279,9 @@ class BootstrapStack(core.Stack):
                                 "commands": [
                                     f"""export CDK_TAGS=$(aws cloudformation describe-stacks --stack-name {construct_id} --query Stacks[0].Tags | python -c 'import sys, json; print(" ".join("--tags " + d["Key"] + "=" + d["Value"] for d in json.load(sys.stdin)))')""",
                                     "export AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)",
+                                    "export BOOTSTRAP_URL=aws://$AWS_ACCOUNT_ID/$AWS_DEFAULT_REGION",
                                     "npm i --silent --quiet --no-progress -g aws-cdk",
-                                    "cdk bootstrap aws://$AWS_ACCOUNT_ID/$AWS_DEFAULT_REGION"
+                                    "(( [[ -n \"CDK_TAGS\" ]] ) && ( cdk bootstrap ${BOOTSTRAP_URL} \"$CDK_TAGS\" )) || ( cdk bootstrap ${BOOTSTRAP_URL} )"
                                 ]
                             },
                             "pre_build": {
