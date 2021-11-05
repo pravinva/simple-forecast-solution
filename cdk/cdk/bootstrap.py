@@ -244,7 +244,9 @@ class BootstrapStack(core.Stack):
                             "ecr:UploadLayerPart",
                             "ecr:CompleteLayerUpload",
                             "ecr:PutImage",
-                            "ecr:SetRepositoryPolicy"
+                            "ecr:SetRepositoryPolicy",
+                            "ecr:CreateRepository",
+                            "ecr:PutImageScanningConfiguration"
                         ],
                         resources=[
                             f"*"
