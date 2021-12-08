@@ -223,7 +223,7 @@ class BootstrapStack(core.Stack):
                     iam.PolicyStatement(
                         effect=iam.Effect.ALLOW,
                         actions=[
-                            "ec2:*",
+                            "ecr:*",
                             "sts:GetCallerIdentity"
                         ],
                         resources=[
