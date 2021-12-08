@@ -196,7 +196,7 @@ class BootstrapStack(core.Stack):
                             "ssm:*"
                         ],
                         resources=[
-                            f"*"
+                            f"arn:aws:ssm:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}:parameter/*"
                         ]
                     ),
 
