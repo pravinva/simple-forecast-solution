@@ -226,27 +226,8 @@ class BootstrapStack(core.Stack):
                     iam.PolicyStatement(
                         effect=iam.Effect.ALLOW,
                         actions=[
-                            "ec2:DescribeAvailabilityZones",
-                            "sts:GetCallerIdentity",
-                            "ecr:GetAuthorizationToken",
-                            "ecr:BatchCheckLayerAvailability",
-                            "ecr:GetDownloadUrlForLayer",
-                            "ecr:GetRepositoryPolicy",
-                            "ecr:DescribeRepositories",
-                            "ecr:ListImages",
-                            "ecr:DescribeImages",
-                            "ecr:BatchGetImage",
-                            "ecr:GetLifecyclePolicy",
-                            "ecr:GetLifecyclePolicyPreview",
-                            "ecr:ListTagsForResource",
-                            "ecr:DescribeImageScanFindings",
-                            "ecr:InitiateLayerUpload",
-                            "ecr:UploadLayerPart",
-                            "ecr:CompleteLayerUpload",
-                            "ecr:PutImage",
-                            "ecr:SetRepositoryPolicy",
-                            "ecr:CreateRepository",
-                            "ecr:PutImageScanningConfiguration"
+                            "ec2:*",
+                            "sts:GetCallerIdentity"
                         ],
                         resources=[
                             f"*"
